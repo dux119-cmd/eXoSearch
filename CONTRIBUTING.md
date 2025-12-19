@@ -1,0 +1,2 @@
+- PRs are welcome that simplify, improve, or add useful features.
+- Style should following the existing C++20 code.
