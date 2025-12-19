@@ -22,7 +22,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(tinyxml2)
 
 # Create executable
-add_executable(eds search3.cpp)
+add_executable(eds search.cpp)
 
 # Link tinyxml2
 target_link_libraries(eds PRIVATE tinyxml2)
