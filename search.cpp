@@ -76,6 +76,22 @@ constexpr int ExitSuccess = 0;
 constexpr int ExitError   = 1;
 
 // ============================================================================
+// ANSI Color Codes
+// ============================================================================
+
+namespace Color {
+constexpr auto Reset      = "\033[0m"sv;
+constexpr auto Bold       = "\033[1m"sv;
+constexpr auto Dim        = "\033[2m"sv;
+constexpr auto Cyan       = "\033[96m"sv;
+constexpr auto Green      = "\033[92m"sv;
+constexpr auto Yellow     = "\033[93m"sv;
+constexpr auto Gray       = "\033[90m"sv;
+constexpr auto SelectedBg = "\033[48;5;24m\033[97m"sv; // Deep blue bg, bright
+                                                       // white text
+} // namespace Color
+
+// ============================================================================
 // Data Structures
 // ============================================================================
 
@@ -541,10 +557,14 @@ class SearchEngine {
 				rng::sort(*new_results, [this](const SearchResult& a, const SearchResult& b) {
 					return (a.score != b.score)
 					             ? (a.score > b.score)
-					             : (entries_[a.index].content.compare(entries_[b.index].content) < 0);
+					             : (entries_[a.index]
+					                        .content.compare(
+					                                entries_[b.index]
+					                                        .content) <
+					                0);
 				});
 
-                if (new_results->size() > Display::MaxResults) {
+				if (new_results->size() > Display::MaxResults) {
 					new_results->resize(Display::MaxResults);
 				}
 
@@ -710,7 +730,9 @@ public:
 			Util::clear_screen();
 
 			const std::string query = engine_.get_query();
-			std::cout << "Search: "sv << query << "_\n"sv;
+			std::cout << Color::Bold << Color::Cyan << "Search: "sv
+			          << Color::Reset << query << Color::Cyan
+			          << "_"sv << Color::Reset << '\n';
 
 			// Show completion hint
 			const auto comps = engine_.get_completions();
@@ -725,19 +747,27 @@ public:
 					                           ? hint->substr(last_space + 1)
 					                           : "");
 					if (!preview.empty()) {
-						std::cout << "Tab: "sv
-						          << preview << " "sv;
+						std::cout << Color::Dim << "Tab: "sv
+						          << Color::Reset
+						          << Color::Green
+						          << preview << Color::Reset
+						          << Color::Dim << " "sv;
 						if (comps.size() > 1) {
-							std::cout << "("sv
-							          << comps.size()
-							          << " completions)"sv;
+							std::cout
+							        << Color::Reset
+							        << Color::Gray
+							        << "("sv
+							        << Color::Yellow
+							        << comps.size()
+							        << " completions)"sv;
 						}
 						std::cout << '\n';
 					}
 				}
 			}
 
-			std::cout << std::string(Display::SeparatorLength, '=')
+			std::cout << Color::Reset << Color::Gray
+			          << std::string(Display::SeparatorLength, '=')
 			          << '\n';
 
 			const auto results = engine_.get_results();
@@ -772,13 +802,24 @@ public:
 
 				const auto& entry = engine_.get_entry(result.index);
 
-				const char marker = (static_cast<int>(idx) ==
-				                     state.selected_index)
-				                          ? '>'
-				                          : ' ';
-				std::cout << marker << "["sv << (idx + 1)
-				          << "] "sv << entry.key << " (score: "sv
-				          << result.score << ")\n    "sv;
+				const bool is_selected = (static_cast<int>(idx) ==
+				                          state.selected_index);
+
+				if (is_selected) {
+					std::cout << Color::SelectedBg;
+				}
+
+				std::cout << (is_selected ? '>' : ' ')
+				          << Color::Bold << "["sv << (idx + 1)
+				          << "] "sv << Color::Reset;
+
+				if (is_selected) {
+					std::cout << Color::SelectedBg;
+				}
+
+				std::cout << entry.key << Color::Dim
+				          << " (score: "sv << result.score
+				          << ")"sv << Color::Reset << "\n    "sv;
 
 				if (entry.content.length() >
 				    Display::MaxPreviewLength) {
@@ -793,11 +834,16 @@ public:
 				std::cout << "\n\n"sv;
 			}
 
-			std::cout
-			        << "\nShowing "sv << (state.scroll_offset + 1)
-			        << "-"sv << (state.scroll_offset + display_count)
-			        << " of "sv << results.size() << " results\n"sv
-			        << "↑/↓: Select | PgUp/PgDn: Scroll | Enter: Confirm | Tab: Complete | Esc: Cancel\n"sv;
+			std::cout << Color::Reset << '\n'
+			          << Color::Bold << Color::Cyan << "Showing "sv
+			          << (state.scroll_offset + 1) << "-"sv
+			          << (state.scroll_offset + display_count)
+			          << " of "sv << results.size() << " results"sv
+			          << Color::Reset << '\n'
+			          << Color::Dim
+			          << "↑/↓: Select | PgUp/PgDn: Scroll | Enter: Confirm | "
+			          << "Tab: Complete | Esc: Cancel"sv
+			          << Color::Reset << '\n';
 			std::cout.flush();
 		} catch (const std::exception& e) {
 			std::cerr << "Display error: "sv << e.what() << '\n';
@@ -1077,40 +1123,35 @@ class Application {
 		display_.render(display_state_);
 	}
 
-	void handle_page_scroll(const bool up)
-	{
-		const auto results = engine_.get_results();
-		if (results.empty()) {
-			return;
-		}
+    void handle_page_scroll(const bool up)
+    {
+        const auto results = engine_.get_results();
+        if (results.empty()) {
+            return;
+        }
 
-		const size_t result_count = results.size();
-		const size_t term_height  = Util::terminal_height();
-		const size_t max_display = (term_height > 6) ? (term_height - 6) / 3
-		                                             : 5;
-		const size_t page_size  = std::max(size_t(1), max_display - 1);
-		const size_t max_offset = (result_count > max_display)
-		                                ? result_count - max_display
-		                                : 0;
+        const size_t result_count = results.size();
+        const size_t term_height  = Util::terminal_height();
+        const size_t max_display = (term_height > 6) ? (term_height - 6) / 3 : 5;
+        const size_t page_size = std::max(size_t(1), max_display - 1);
 
-		// Adjust scroll offset
-		display_state_.scroll_offset =
-		        up ? std::max(display_state_.scroll_offset, page_size) - page_size
-		           : std::min(display_state_.scroll_offset + page_size,
-		                      max_offset);
+        // Move selection by page_size
+        display_state_.selected_index = up
+            ? std::max(display_state_.selected_index - static_cast<int>(page_size), 0)
+            : std::min(display_state_.selected_index + static_cast<int>(page_size),
+                    static_cast<int>(result_count) - 1);
 
-		// Update selection to match scroll position
-		if (display_state_.selected_index >= 0) {
-			const size_t target_index =
-			        up ? display_state_.scroll_offset
-			           : std::min(display_state_.scroll_offset +
-			                              max_display - 1,
-			                      result_count - 1);
-			display_state_.selected_index = static_cast<int>(target_index);
-		}
+        // Adjust scroll to keep selection visible
+        const size_t selected = static_cast<size_t>(display_state_.selected_index);
+        const size_t min_scroll = selected >= (max_display - 1)
+                                        ? selected - (max_display - 1)
+                                        : 0;
+        display_state_.scroll_offset = std::clamp(display_state_.scroll_offset,
+                                                min_scroll,
+                                                selected);
 
-		display_.render(display_state_);
-	}
+        display_.render(display_state_);
+    }
 
 	void handle_select(const int index)
 	{
