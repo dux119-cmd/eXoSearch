@@ -1,12 +1,12 @@
 #ifndef SAFE_QUEUE_H
 #define SAFE_QUEUE_H
 
-#include <condition_variable>
-#include <queue>
-#include <mutex>
 #include <atomic>
-#include <optional>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <optional>
+#include <queue>
 
 // ============================================================================
 // Thread-Safe Queue
@@ -21,14 +21,15 @@ class SafeQueue {
 
 public:
 	// 1. Perfect forwarding - constructs T in-place
-        template<typename... Args>
-	void emplace(Args&&... items){
-    {
-        std::scoped_lock lock(mutex_);
-        queue_.emplace(std::forward<Args>(items)...);
-    }
-    cv_.notify_one();
-}
+	template <typename... Args>
+	void emplace(Args&&... items)
+	{
+		{
+			std::scoped_lock lock(mutex_);
+			queue_.emplace(std::forward<Args>(items)...);
+		}
+		cv_.notify_one();
+	}
 	// 2. Universal reference for efficient push
 	void push(T&& item);
 

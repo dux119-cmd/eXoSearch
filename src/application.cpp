@@ -1,6 +1,6 @@
 #include "application.h"
-#include "utilities.h"
 #include "timing_t.h"
+#include "utilities.h"
 #include <iostream>
 
 // ============================================================================
@@ -19,55 +19,48 @@ void Application::io_worker(const std::stop_token stoken)
 			}
 
 			std::visit(
-					[this](auto&& arg) {
-						using T = std::decay_t<decltype(arg)>;
+			        [this](auto&& arg) {
+				        using T = std::decay_t<decltype(arg)>;
 
-						try {
-							if constexpr (std::is_same_v<T, RefreshDisplay>) {
-								state_.scroll_offset =
-										arg.state
-												.scroll_offset;
-								state_.selected_index =
-										arg.state
-												.selected_index;
-								state_.metrics.dirty = true;
-								state_.metrics = display_.render(
-										state_);
-							} else if constexpr (std::is_same_v<T, UpdateQuery>) {
-								query_ = std::move(
-										arg.query);
-								engine_.update_query(
-										query_);
-							} else if constexpr (std::is_same_v<T, MoveSelection>) {
-								handle_move(arg.delta);
-							} else if constexpr (std::is_same_v<T, PageScroll>) {
-								handle_page_scroll(
-										arg.up);
-							} else if constexpr (std::is_same_v<T, SelectResult>) {
-								handle_select(arg.index);
-							} else if constexpr (std::is_same_v<T, Exit>) {
-								exit_code_ = arg.code;
-								running_ = false;
-							}
-						} catch (const std::exception& e) {
-							std::cerr << "Command error: "sv
-										<< e.what()
-										<< '\n';
-						} catch (...) {
-							std::cerr << "Unknown command error\n"sv;
-						}
-					},
-					*cmd);
+				        try {
+					        if constexpr (std::is_same_v<T, RefreshDisplay>) {
+						        state_.scroll_offset =
+						                arg.state.scroll_offset;
+						        state_.selected_index =
+						                arg.state.selected_index;
+						        state_.metrics.dirty = true;
+						        state_.metrics = display_.render(
+						                state_);
+					        } else if constexpr (std::is_same_v<T, UpdateQuery>) {
+						        query_ = std::move(arg.query);
+						        engine_.update_query(query_);
+					        } else if constexpr (std::is_same_v<T, MoveSelection>) {
+						        handle_move(arg.delta);
+					        } else if constexpr (std::is_same_v<T, PageScroll>) {
+						        handle_page_scroll(arg.up);
+					        } else if constexpr (std::is_same_v<T, SelectResult>) {
+						        handle_select(arg.index);
+					        } else if constexpr (std::is_same_v<T, Exit>) {
+						        exit_code_ = arg.code;
+						        running_   = false;
+					        }
+				        } catch (const std::exception& e) {
+					        std::cerr << "Command error: "sv
+					                  << e.what() << '\n';
+				        } catch (...) {
+					        std::cerr << "Unknown command error\n"sv;
+				        }
+			        },
+			        *cmd);
 		} catch (const std::exception& e) {
-			std::cerr << "IO worker error: "sv << e.what()
-						<< '\n';
+			std::cerr << "IO worker error: "sv << e.what() << '\n';
 		} catch (...) {
 			std::cerr << "Unknown IO worker error\n"sv;
 		}
 	}
 }
 
-void  Application::handle_move(const int delta)
+void Application::handle_move(const int delta)
 {
 	const auto results = engine_.get_results();
 	if (results.empty()) {
@@ -80,11 +73,11 @@ void  Application::handle_move(const int delta)
 		state_.selected_index = 0;
 	} else {
 		state_.selected_index = std::clamp(state_.selected_index + delta,
-											0,
-											result_count - 1);
+		                                   0,
+		                                   result_count - 1);
 	}
 
-	const size_t selected = static_cast<size_t>(state_.selected_index);
+	const size_t selected    = static_cast<size_t>(state_.selected_index);
 	const size_t max_visible = state_.metrics.max_visible_results;
 
 	if (max_visible > 0) {
@@ -98,7 +91,7 @@ void  Application::handle_move(const int delta)
 	state_.metrics = display_.render(state_);
 }
 
-void  Application::handle_page_scroll(const bool up)
+void Application::handle_page_scroll(const bool up)
 {
 	const auto results = engine_.get_results();
 	if (results.empty()) {
@@ -116,13 +109,13 @@ void  Application::handle_page_scroll(const bool up)
 
 	if (up) {
 		const int new_selected = state_.selected_index -
-									static_cast<int>(page_size);
+		                         static_cast<int>(page_size);
 		state_.selected_index = std::max(0, new_selected);
 	} else {
 		const int new_selected = state_.selected_index +
-									static_cast<int>(page_size);
-		state_.selected_index = std::min(
-				new_selected, static_cast<int>(result_count) - 1);
+		                         static_cast<int>(page_size);
+		state_.selected_index = std::min(new_selected,
+		                                 static_cast<int>(result_count) - 1);
 	}
 
 	const size_t selected = static_cast<size_t>(state_.selected_index);
@@ -136,7 +129,7 @@ void  Application::handle_page_scroll(const bool up)
 	state_.metrics = display_.render(state_);
 }
 
-void  Application::handle_select(const int index)
+void Application::handle_select(const int index)
 {
 	const auto results = engine_.get_results();
 
@@ -159,15 +152,14 @@ void  Application::handle_select(const int index)
 	}
 }
 
-
 Application::Application(std::vector<Entry> entries)
-		: engine_(std::move(entries)),
-			display_(engine_)
+        : engine_(std::move(entries)),
+          display_(engine_)
 {
 	engine_.set_queue(&queue_);
 }
 
-[[nodiscard]] int  Application::run()
+[[nodiscard]] int Application::run()
 {
 	using namespace std::string_view_literals;
 
@@ -176,20 +168,17 @@ Application::Application(std::vector<Entry> entries)
 		engine_.update_query("");
 
 		auto search_thread = engine_.start();
-		std::jthread io_thread([this](const std::stop_token st) {
-			io_worker(st);
-		});
+		std::jthread io_thread(
+		        [this](const std::stop_token st) { io_worker(st); });
 
 		while (running_) {
 			try {
-				if (const auto cmd = input_.poll(query_,
-													engine_)) {
+				if (const auto cmd = input_.poll(query_, engine_)) {
 					queue_.emplace(*cmd);
 				}
 				std::this_thread::sleep_for(Timing::IOSleep);
 			} catch (const std::exception& e) {
-				std::cerr << "Input error: "sv
-							<< e.what() << '\n';
+				std::cerr << "Input error: "sv << e.what() << '\n';
 			} catch (...) {
 				std::cerr << "Unknown input error\n"sv;
 			}
@@ -197,9 +186,8 @@ Application::Application(std::vector<Entry> entries)
 
 		queue_.shutdown();
 		std::cout << "\n\nSearch "sv
-					<< (exit_code_ == ExitSuccess ? "terminated"sv
-												: "completed"sv)
-					<< ".\n"sv;
+		          << (exit_code_ == ExitSuccess ? "terminated"sv : "completed"sv)
+		          << ".\n"sv;
 		return exit_code_;
 	} catch (const std::exception& e) {
 		std::cerr << "Fatal error: "sv << e.what() << '\n';

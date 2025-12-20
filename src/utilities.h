@@ -1,10 +1,10 @@
 #ifndef UTILITIES_H
 #define UTILITIES_H
 
-#include <vector>
+#include <iostream>
 #include <string>
 #include <string_view>
-#include <iostream>
+#include <vector>
 
 // ============================================================================
 // Utilities

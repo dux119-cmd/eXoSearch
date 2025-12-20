@@ -1,9 +1,9 @@
 #include "utilities.h"
 
-        #include <algorithm>
+#include <algorithm>
 #include <ranges>
 #include <sstream>
-#include <string>   // if std::string used here
+#include <string> // if std::string used here
 
 #ifdef _WIN32
 #include <conio.h>

@@ -1,11 +1,11 @@
 #ifndef APPLICATION_H
 #define APPLICATION_H
 
-#include "search_engine.h"
 #include "display_manager.h"
+#include "exit_codes_t.h"
 #include "input_handler.h"
 #include "safe_queue.h"
-#include "exit_codes_t.h"
+#include "search_engine.h"
 
 #include <atomic>
 #include <string>

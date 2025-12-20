@@ -5,10 +5,9 @@
 #include <vector>
 
 struct Entry {
-        std::string key                = {};
-        std::string content            = {};
-        std::vector<std::string> words = {};
+	std::string key                = {};
+	std::string content            = {};
+	std::vector<std::string> words = {};
 };
 
 #endif
-

@@ -2,8 +2,8 @@
 // Copyright (C) 2025 dux119-cmd <dux119-cmd@users.noreply.github.com>
 // Licensed under GNU GPL v3+
 
-#include "xml_parser.h"
 #include "application.h"
+#include "xml_parser.h"
 
 #include <iostream>
 
@@ -15,8 +15,7 @@ int main(const int argc, char* const argv[])
 {
 	try {
 		if (argc != 2) {
-			std::cout << "Usage: " << argv[0]
-			          << " <launchbox_xml_file>\n"
+			std::cout << "Usage: " << argv[0] << " <launchbox_xml_file>\n"
 			          << "File format: LaunchBox XML with Game and "
 			          << "AlternateName elements\n";
 			return ExitError;

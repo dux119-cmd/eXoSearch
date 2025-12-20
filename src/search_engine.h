@@ -1,16 +1,16 @@
 #ifndef SEARCH_ENGINE_H
 #define SEARCH_ENGINE_H
 
-#include "safe_queue.h"
 #include "command_t.h"
 #include "entry_t.h"
+#include "safe_queue.h"
 
-#include <thread>
-#include <vector>
+#include <atomic>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <optional>
-#include <atomic>
+#include <thread>
+#include <vector>
 
 // ============================================================================
 // Search Engine
@@ -34,7 +34,8 @@ class SearchEngine {
 
 	[[nodiscard]] int score(const Entry& entry, const std::string_view query) const;
 
-	[[nodiscard]] std::vector<std::string> find_completions(const std::string_view query) const;
+	[[nodiscard]] std::vector<std::string> find_completions(
+	        const std::string_view query) const;
 
 	void search_worker(const std::stop_token stoken);
 

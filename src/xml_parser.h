@@ -3,10 +3,10 @@
 
 #include "entry_t.h"
 
-#include <string>
 #include <map>
-#include <set>
 #include <optional>
+#include <set>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -14,7 +14,9 @@
 // XML Parser
 // ============================================================================
 
-namespace tinyxml2 { class XMLElement; }
+namespace tinyxml2 {
+class XMLElement;
+}
 
 class XMLParser {
 	static constexpr auto get_text = [](const auto* parent, const char* tag) {

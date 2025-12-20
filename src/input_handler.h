@@ -6,7 +6,6 @@
 #include <optional>
 #include <string>
 
-
 #ifdef _WIN32
 #include <conio.h>
 #include <windows.h>

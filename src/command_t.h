@@ -9,7 +9,7 @@ constexpr size_t SeparatorLength   = 60;
 constexpr size_t MaxPreviewLength  = 80;
 constexpr size_t MinLinesPerResult = 3;
 constexpr size_t MinVisibleResults = 2;
-}
+} // namespace Display
 
 struct DisplayMetrics {
 	size_t terminal_height     = 0;

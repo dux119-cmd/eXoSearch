@@ -3,10 +3,10 @@
 
 #include "search_engine.h"
 
-#include <vector>
-#include <string>
-#include <optional>
 #include <chrono>
+#include <optional>
+#include <string>
+#include <vector>
 
 // ============================================================================
 // Display Manager
