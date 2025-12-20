@@ -27,8 +27,20 @@ FetchContent_Declare(tinyxml2
 set(tinyxml2_BUILD_TESTING OFF)
 FetchContent_MakeAvailable(tinyxml2)
 
+# source files
+set(SOURCES
+    src/application.cpp
+    src/display_manager.cpp
+    src/input_handler.cpp
+    src/safe_queue.cpp
+    src/search_engine.cpp
+    src/utilities.cpp
+    src/xml_parser.cpp
+    src/main.cpp
+)
+
 # Create executable
-add_executable(eds search.cpp)
+add_executable(eds ${SOURCES})
 target_link_libraries(eds PRIVATE tinyxml2)
 
 # Compiler warnings
