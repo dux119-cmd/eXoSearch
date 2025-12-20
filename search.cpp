@@ -62,13 +62,13 @@ namespace Display {
 constexpr size_t MaxResults       = 10000;
 constexpr size_t SeparatorLength  = 60;
 constexpr size_t MaxPreviewLength = 80;
-constexpr size_t HeaderLines      = 4;
-constexpr size_t LinesPerResult   = 3;
+constexpr size_t MinLinesPerResult = 3;  // Minimum lines needed per result
+constexpr size_t MinVisibleResults = 2;  // Try to show at least 2 results
 } // namespace Display
 
 namespace Timing {
-constexpr auto SearchSleep = 20ms;
-constexpr auto IOSleep     = 30ms;
+constexpr auto SearchSleep = 30ms;
+constexpr auto IOSleep     = 50ms;
 } // namespace Timing
 
 constexpr int MaxExitCode = 255;
@@ -87,8 +87,7 @@ constexpr auto Cyan       = "\033[96m"sv;
 constexpr auto Green      = "\033[92m"sv;
 constexpr auto Yellow     = "\033[93m"sv;
 constexpr auto Gray       = "\033[90m"sv;
-constexpr auto SelectedBg = "\033[48;5;24m\033[97m"sv; // Deep blue bg, bright
-                                                       // white text
+constexpr auto SelectedBg = "\033[48;5;24m\033[97m"sv;
 } // namespace Color
 
 // ============================================================================
@@ -106,9 +105,21 @@ struct SearchResult {
 	int score    = {};
 };
 
+struct DisplayMetrics {
+	size_t terminal_height = 0;
+	size_t header_lines = 0;
+	size_t footer_lines = 0;
+	size_t available_lines = 0;
+	size_t lines_per_result = Display::MinLinesPerResult;
+	size_t max_visible_results = 0;
+	bool dirty = true;  // Need to recalculate
+};
+
 struct DisplayState {
 	size_t scroll_offset = 0;
 	int selected_index   = -1;
+	DisplayMetrics metrics = {};
+	size_t last_terminal_height = 0;  // For detecting resize
 };
 
 // Commands for thread communication
@@ -181,12 +192,80 @@ namespace Util {
 #endif
 }
 
+[[nodiscard]] std::pair<size_t, size_t> get_cursor_position()
+{
+#ifdef _WIN32
+	CONSOLE_SCREEN_BUFFER_INFO csbi = {};
+	GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+	return {static_cast<size_t>(csbi.dwCursorPosition.Y + 1),
+	        static_cast<size_t>(csbi.dwCursorPosition.X + 1)};
+#else
+	// Query cursor position using ANSI escape code
+	std::cout << "\033[6n" << std::flush;
+
+	char buf[32] = {};
+	size_t i = 0;
+
+	// Read response: ESC [ row ; col R
+	while (i < sizeof(buf) - 1) {
+		if (read(STDIN_FILENO, &buf[i], 1) != 1) {
+			break;
+		}
+		if (buf[i] == 'R') {
+			break;
+		}
+		++i;
+	}
+
+	size_t row = 1, col = 1;
+	if (i > 0 && buf[0] == '\033' && buf[1] == '[') {
+		if (sscanf(buf + 2, "%zu;%zu", &row, &col) != 2) {
+			row = col = 1;
+		}
+	}
+
+	return {row, col};
+#endif
+}
+
 constexpr void clear_screen()
 {
 #ifdef _WIN32
 	std::system("cls");
 #else
-	std::cout << "\033[2J\033[1;1H"sv;
+	// Move to home and clear from cursor to end of screen
+	std::cout << "\033[H\033[J"sv;
+#endif
+}
+
+constexpr void clear_to_end_of_screen()
+{
+#ifdef _WIN32
+	// Windows doesn't have a simple equivalent, use spaces
+	CONSOLE_SCREEN_BUFFER_INFO csbi = {};
+	if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi)) {
+		const COORD start = csbi.dwCursorPosition;
+		const DWORD size = (csbi.dwSize.X * csbi.dwSize.Y) -
+		                   (start.Y * csbi.dwSize.X + start.X);
+		DWORD written = 0;
+		FillConsoleOutputCharacter(GetStdHandle(STD_OUTPUT_HANDLE),
+		                          ' ', size, start, &written);
+		SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), start);
+	}
+#else
+	std::cout << "\033[J"sv;  // Clear from cursor to end
+#endif
+}
+
+void move_cursor(const size_t row, const size_t col)
+{
+#ifdef _WIN32
+	COORD coord = {};
+	coord.X = static_cast<SHORT>(col - 1);
+	coord.Y = static_cast<SHORT>(row - 1);
+	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+#else
+	std::cout << "\033[" << row << ";" << col << "H";
 #endif
 }
 } // namespace Util
@@ -576,7 +655,7 @@ class SearchEngine {
 
 				if (queue_) {
 					queue_->push(RefreshDisplay{
-					        {0, -1}
+					        {0, -1, {}}
                                         });
 				}
 			}
@@ -720,26 +799,96 @@ public:
 
 class DisplayManager {
 	const SearchEngine& engine_;
+	mutable size_t cached_terminal_height_ = 0;
+	mutable std::chrono::steady_clock::time_point last_height_check_ = {};
+
+	[[nodiscard]] size_t get_terminal_height_cached() const
+	{
+		// Only check terminal height every 500ms to avoid excessive syscalls
+		const auto now = std::chrono::steady_clock::now();
+		if (cached_terminal_height_ == 0 ||
+		    (now - last_height_check_) > 500ms) {
+			cached_terminal_height_ = Util::terminal_height();
+			last_height_check_ = now;
+		}
+		return cached_terminal_height_;
+	}
+
+	[[nodiscard]] DisplayMetrics measure_display(const size_t result_count,
+	                                             const DisplayMetrics& old_metrics) const
+	{
+		const size_t current_height = get_terminal_height_cached();
+
+		// If terminal size hasn't changed and metrics exist, reuse them
+		if (!old_metrics.dirty &&
+		    old_metrics.terminal_height == current_height &&
+		    old_metrics.terminal_height > 0) {
+			return old_metrics;
+		}
+
+		DisplayMetrics metrics = {};
+		metrics.terminal_height = current_height;
+		metrics.dirty = false;
+
+		// Reserve minimum space for footer (status + controls = 2 lines minimum)
+		constexpr size_t min_footer_lines = 3;
+		constexpr size_t header_lines = 3;  // Search line + completion + separator
+
+		// Calculate available space more conservatively
+		if (metrics.terminal_height > min_footer_lines + header_lines +
+		    Display::MinVisibleResults * Display::MinLinesPerResult) {
+			metrics.footer_lines = min_footer_lines;
+			metrics.header_lines = header_lines;
+			metrics.lines_per_result = Display::MinLinesPerResult;
+
+			// Available lines = terminal height - header - footer
+			size_t used_lines = header_lines + metrics.footer_lines;
+			if (metrics.terminal_height > used_lines) {
+				metrics.available_lines = metrics.terminal_height - used_lines;
+			} else {
+				metrics.available_lines = Display::MinVisibleResults * Display::MinLinesPerResult;
+			}
+
+			metrics.max_visible_results = metrics.available_lines / metrics.lines_per_result;
+
+			// Ensure at least minimum visible results
+			if (metrics.max_visible_results < Display::MinVisibleResults) {
+				metrics.max_visible_results = Display::MinVisibleResults;
+			}
+		} else {
+			// Fallback for very small terminals
+			metrics.header_lines = header_lines;
+			metrics.footer_lines = min_footer_lines;
+			metrics.lines_per_result = Display::MinLinesPerResult;
+			metrics.available_lines = Display::MinVisibleResults * Display::MinLinesPerResult;
+			metrics.max_visible_results = Display::MinVisibleResults;
+		}
+
+		return metrics;
+	}
 
 public:
 	explicit DisplayManager(const SearchEngine& engine) : engine_(engine) {}
 
-	void render(const DisplayState& state) const
+	[[nodiscard]] DisplayMetrics render(DisplayState& state) const
 	{
 		try {
-			Util::clear_screen();
+			// Build entire output in a buffer for atomic display
+			std::ostringstream buffer;
+
+			// Clear entire screen and move to home - prevents remnants from previous renders
+			buffer << "\033[2J\033[H"sv;
 
 			const std::string query = engine_.get_query();
-			std::cout << Color::Bold << Color::Cyan << "Search: "sv
-			          << Color::Reset << query << Color::Cyan
-			          << "_"sv << Color::Reset << '\n';
+			buffer << Color::Bold << Color::Cyan << "Search: "sv
+			       << Color::Reset << query << Color::Cyan
+			       << "_"sv << Color::Reset << '\n';
 
 			// Show completion hint
 			const auto comps = engine_.get_completions();
 			if (!comps.empty() && !query.empty()) {
 				if (const auto hint = engine_.get_completion()) {
-					const size_t last_space = query.find_last_of(
-					        " \t");
+					const size_t last_space = query.find_last_of(" \t");
 					const std::string preview =
 					        (last_space == std::string::npos)
 					                ? *hint
@@ -747,47 +896,49 @@ public:
 					                           ? hint->substr(last_space + 1)
 					                           : "");
 					if (!preview.empty()) {
-						std::cout << Color::Dim << "Tab: "sv
-						          << Color::Reset
-						          << Color::Green
-						          << preview << Color::Reset
-						          << Color::Dim << " "sv;
+						buffer << Color::Dim << "Tab: "sv
+						       << Color::Reset << Color::Green
+						       << preview << Color::Reset
+						       << Color::Dim << " "sv;
 						if (comps.size() > 1) {
-							std::cout
-							        << Color::Reset
-							        << Color::Gray
-							        << "("sv
-							        << Color::Yellow
-							        << comps.size()
-							        << " completions)"sv;
+							buffer << Color::Reset << Color::Gray
+							       << "("sv << Color::Yellow
+							       << comps.size()
+							       << " completions)"sv;
 						}
-						std::cout << '\n';
+						buffer << '\n';
 					}
 				}
 			}
 
-			std::cout << Color::Reset << Color::Gray
-			          << std::string(Display::SeparatorLength, '=')
-			          << '\n';
+			buffer << Color::Reset << Color::Gray
+			       << std::string(Display::SeparatorLength, '=')
+			       << '\n';
 
 			const auto results = engine_.get_results();
-			if (results.empty()) {
-				if (!query.empty()) {
-					std::cout << "No matches found.\n"sv;
-				}
-				std::cout.flush();
-				return;
+
+			// Measure display space with caching
+			DisplayMetrics metrics = measure_display(results.size(), state.metrics);
+
+			// Detect terminal resize
+			const size_t current_height = get_terminal_height_cached();
+			if (state.last_terminal_height != current_height) {
+				state.last_terminal_height = current_height;
+				state.metrics.dirty = true;
+				metrics = measure_display(results.size(), state.metrics);
 			}
 
-			const size_t term_height = Util::terminal_height();
-			const size_t max_display =
-			        (term_height > Display::HeaderLines + 2)
-			                ? (term_height - Display::HeaderLines -
-			                   2) / Display::LinesPerResult
-			                : 5;
+			if (results.empty()) {
+				if (!query.empty()) {
+					buffer << "No matches found.\n"sv;
+				}
+				std::cout << buffer.str() << std::flush;
+				return metrics;
+			}
 
 			const size_t display_count = std::min(
-			        max_display, results.size() - state.scroll_offset);
+			        metrics.max_visible_results,
+			        results.size() - state.scroll_offset);
 
 			for (size_t i = 0; i < display_count; ++i) {
 				const size_t idx = state.scroll_offset + i;
@@ -806,49 +957,54 @@ public:
 				                          state.selected_index);
 
 				if (is_selected) {
-					std::cout << Color::SelectedBg;
+					buffer << Color::SelectedBg;
 				}
 
-				std::cout << (is_selected ? '>' : ' ')
-				          << Color::Bold << "["sv << (idx + 1)
-				          << "] "sv << Color::Reset;
+				buffer << (is_selected ? '>' : ' ')
+				       << Color::Bold << "["sv << (idx + 1)
+				       << "] "sv << Color::Reset;
 
 				if (is_selected) {
-					std::cout << Color::SelectedBg;
+					buffer << Color::SelectedBg;
 				}
 
-				std::cout << entry.key << Color::Dim
-				          << " (score: "sv << result.score
-				          << ")"sv << Color::Reset << "\n    "sv;
+				buffer << entry.key << Color::Dim
+				       << " (score: "sv << result.score
+				       << ")"sv << Color::Reset << "\n    "sv;
 
-				if (entry.content.length() >
-				    Display::MaxPreviewLength) {
+				if (entry.content.length() > Display::MaxPreviewLength) {
 					const size_t truncate_len = std::min(
 					        Display::MaxPreviewLength - 3,
 					        entry.content.length());
-					std::cout << entry.content.substr(0, truncate_len)
-					          << "..."sv;
+					buffer << entry.content.substr(0, truncate_len)
+					       << "..."sv;
 				} else {
-					std::cout << entry.content;
+					buffer << entry.content;
 				}
-				std::cout << "\n\n"sv;
+				buffer << "\n\n"sv;
 			}
 
-			std::cout << Color::Reset << '\n'
-			          << Color::Bold << Color::Cyan << "Showing "sv
-			          << (state.scroll_offset + 1) << "-"sv
-			          << (state.scroll_offset + display_count)
-			          << " of "sv << results.size() << " results"sv
-			          << Color::Reset << '\n'
-			          << Color::Dim
-			          << "↑/↓: Select | PgUp/PgDn: Scroll | Enter: Confirm | "
-			          << "Tab: Complete | Esc: Cancel"sv
-			          << Color::Reset << '\n';
-			std::cout.flush();
+			buffer << Color::Reset << '\n'
+			       << Color::Bold << Color::Cyan << "Showing "sv
+			       << (state.scroll_offset + 1) << "-"sv
+			       << (state.scroll_offset + display_count)
+			       << " of "sv << results.size() << " results"sv
+			       << Color::Reset << '\n'
+			       << Color::Dim
+			       << "↑/↓: Select | PgUp/PgDn: Scroll | Enter: Confirm | "
+			       << "Tab: Complete | Esc: Cancel"sv
+			       << Color::Reset << '\n';
+
+			// Write entire buffer at once for smooth rendering
+			std::cout << buffer.str() << std::flush;
+
+			return metrics;
 		} catch (const std::exception& e) {
 			std::cerr << "Display error: "sv << e.what() << '\n';
+			return {};
 		} catch (...) {
 			std::cerr << "Unknown display error\n"sv;
+			return {};
 		}
 	}
 
@@ -918,6 +1074,48 @@ class InputHandler {
 		return (read(STDIN_FILENO, &c, 1) == 1) ? c : -1;
 	}
 
+	void flush_input_buffer() const
+	{
+#ifdef _WIN32
+		while (_kbhit()) {
+			_getch();
+		}
+#else
+		tcflush(STDIN_FILENO, TCIFLUSH);
+#endif
+	}
+
+	[[nodiscard]] int read_byte_timeout(const int timeout_ms) const
+	{
+#ifdef _WIN32
+		const auto start = std::chrono::steady_clock::now();
+		while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(timeout_ms)) {
+			if (_kbhit()) {
+				return _getch();
+			}
+			std::this_thread::sleep_for(1ms);
+		}
+		return -1;
+#else
+		fd_set fds = {};
+		FD_ZERO(&fds);
+		FD_SET(STDIN_FILENO, &fds);
+
+		timeval tv{};
+		tv.tv_sec = 0;
+		tv.tv_usec = timeout_ms * 1000;
+
+		if (select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv) > 0) {
+			unsigned char c = {};
+			if (read(STDIN_FILENO, &c, 1) == 1) {
+				return c;
+			}
+		}
+		return -1;
+#endif
+	}
+
+
 public:
 	InputHandler()
 	{
@@ -974,36 +1172,46 @@ public:
 
 		// Enter
 		if (c == '\r' || c == '\n') {
-			// Will be handled by application logic
-			return SelectResult{-1}; // Signal to handle enter
+			return SelectResult{-1};
 		}
 
 		// Escape sequences
 		if (c == 0x1B) {
-			const int c1 = read_byte();
+			// Read with timeout to handle incomplete sequences
+			const int c1 = read_byte_timeout(10);
 			if (c1 == -1) {
 				return Exit{ExitSuccess};
 			}
 			if (c1 != '[') {
-				return std::nullopt;
+				// Not a standard escape sequence, discard
+				flush_input_buffer();
+                return std::nullopt;
 			}
 
-			const int c2 = read_byte();
+			const int c2 = read_byte_timeout(10);
 			if (c2 == -1) {
-				return std::nullopt;
+				// Incomplete sequence, discard
+				flush_input_buffer();
+                return std::nullopt;
 			}
 
 			switch (c2) {
-			case 'A': return MoveSelection{-1};
-			case 'B': return MoveSelection{1};
+			case 'A':
+				flush_input_buffer();  // Clear any queued repeats
+				return MoveSelection{-1};
+			case 'B':
+				flush_input_buffer();  // Clear any queued repeats
+				return MoveSelection{1};
 			case '5': {
-				if (read_byte() == '~') {
+				if (read_byte_timeout(10) == '~') {
+					flush_input_buffer();  // Clear any queued repeats
 					return PageScroll{true};
 				}
 				break;
 			}
 			case '6': {
-				if (read_byte() == '~') {
+				if (read_byte_timeout(10) == '~') {
+					flush_input_buffer();  // Clear any queued repeats
 					return PageScroll{false};
 				}
 				break;
@@ -1052,8 +1260,10 @@ class Application {
 
 					        try {
 						        if constexpr (std::is_same_v<T, RefreshDisplay>) {
-							        display_state_ = arg.state;
-							        display_.render(display_state_);
+							        display_state_.scroll_offset = arg.state.scroll_offset;
+							        display_state_.selected_index = arg.state.selected_index;
+							        display_state_.metrics.dirty = true;
+							        display_state_.metrics = display_.render(display_state_);
 						        } else if constexpr (std::is_same_v<T, UpdateQuery>) {
 							        query_ = std::move(
 							                arg.query);
@@ -1107,51 +1317,62 @@ class Application {
 			                   result_count - 1);
 		}
 
-		// Adjust scroll to keep selection visible
-		const size_t term_height = Util::terminal_height();
-		const size_t max_display = (term_height > 6) ? (term_height - 6) / 3
-		                                             : 5;
-		const size_t selected = static_cast<size_t>(
-		        display_state_.selected_index);
+		// Ensure selected item is visible using measured metrics
+		const size_t selected = static_cast<size_t>(display_state_.selected_index);
+		const size_t max_visible = display_state_.metrics.max_visible_results;
 
-		const size_t min_scroll = std::max(selected, max_display - 1) -
-		                          (max_display - 1);
-		display_state_.scroll_offset = std::clamp(display_state_.scroll_offset,
-		                                          min_scroll,
-		                                          selected);
+		if (max_visible > 0) {
+			// If selected is above visible window, scroll up
+			if (selected < display_state_.scroll_offset) {
+				display_state_.scroll_offset = selected;
+			}
+			// If selected is below visible window, scroll down
+			else if (selected >= display_state_.scroll_offset + max_visible) {
+				display_state_.scroll_offset = selected - max_visible + 1;
+			}
+		}
 
-		display_.render(display_state_);
+		display_state_.metrics = display_.render(display_state_);
 	}
 
-    void handle_page_scroll(const bool up)
-    {
-        const auto results = engine_.get_results();
-        if (results.empty()) {
-            return;
-        }
+	void handle_page_scroll(const bool up)
+	{
+		const auto results = engine_.get_results();
+		if (results.empty()) {
+			return;
+		}
 
-        const size_t result_count = results.size();
-        const size_t term_height  = Util::terminal_height();
-        const size_t max_display = (term_height > 6) ? (term_height - 6) / 3 : 5;
-        const size_t page_size = std::max(size_t(1), max_display - 1);
+		const size_t result_count = results.size();
+		const size_t max_visible = display_state_.metrics.max_visible_results;
 
-        // Move selection by page_size
-        display_state_.selected_index = up
-            ? std::max(display_state_.selected_index - static_cast<int>(page_size), 0)
-            : std::min(display_state_.selected_index + static_cast<int>(page_size),
-                    static_cast<int>(result_count) - 1);
+		if (max_visible == 0) {
+			return;
+		}
 
-        // Adjust scroll to keep selection visible
-        const size_t selected = static_cast<size_t>(display_state_.selected_index);
-        const size_t min_scroll = selected >= (max_display - 1)
-                                        ? selected - (max_display - 1)
-                                        : 0;
-        display_state_.scroll_offset = std::clamp(display_state_.scroll_offset,
-                                                min_scroll,
-                                                selected);
+		// Calculate page size (typically one screen minus one for overlap)
+		const size_t page_size = std::max(size_t(1), max_visible - 1);
 
-        display_.render(display_state_);
-    }
+		// Move selection by page_size
+		if (up) {
+			const int new_selected = display_state_.selected_index - static_cast<int>(page_size);
+			display_state_.selected_index = std::max(0, new_selected);
+		} else {
+			const int new_selected = display_state_.selected_index + static_cast<int>(page_size);
+			display_state_.selected_index = std::min(new_selected,
+			                                         static_cast<int>(result_count) - 1);
+		}
+
+		// Adjust scroll to keep selection visible
+		const size_t selected = static_cast<size_t>(display_state_.selected_index);
+
+		if (selected < display_state_.scroll_offset) {
+			display_state_.scroll_offset = selected;
+		} else if (selected >= display_state_.scroll_offset + max_visible) {
+			display_state_.scroll_offset = selected - max_visible + 1;
+		}
+
+		display_state_.metrics = display_.render(display_state_);
+	}
 
 	void handle_select(const int index)
 	{
@@ -1166,7 +1387,7 @@ class Application {
 				target_index = 0;
 			} else if (results.size() > 1) {
 				display_state_.selected_index = 0;
-				display_.render(display_state_);
+				display_state_.metrics = display_.render(display_state_);
 				return;
 			}
 		}
@@ -1188,6 +1409,9 @@ public:
 	[[nodiscard]] int run()
 	{
 		try {
+			// Initial clear on startup
+			Util::clear_screen();
+
 			engine_.update_query("");
 
 			auto search_thread = engine_.start();
