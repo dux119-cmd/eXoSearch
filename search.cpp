@@ -56,20 +56,22 @@ constexpr int WordContains      = 50;
 constexpr int Content           = 10;
 constexpr int Default           = 1;
 constexpr int None              = 0;
-} // namespace Score
+}
 
 namespace Display {
-constexpr size_t MaxResults       = 10000;
-constexpr size_t SeparatorLength  = 60;
-constexpr size_t MaxPreviewLength = 80;
-constexpr size_t MinLinesPerResult = 3;  // Minimum lines needed per result
-constexpr size_t MinVisibleResults = 2;  // Try to show at least 2 results
-} // namespace Display
+constexpr size_t MaxResults        = 10000;
+constexpr size_t SeparatorLength   = 60;
+constexpr size_t MaxPreviewLength  = 80;
+constexpr size_t MinLinesPerResult = 3;
+constexpr size_t MinVisibleResults = 2;
+}
 
 namespace Timing {
-constexpr auto SearchSleep = 30ms;
-constexpr auto IOSleep     = 50ms;
-} // namespace Timing
+constexpr auto SearchSleep  = 30ms;
+constexpr auto IOSleep      = 50ms;
+constexpr auto HeightCache  = 500ms;
+constexpr auto InputTimeout = 10ms;
+}
 
 constexpr int MaxExitCode = 255;
 constexpr int ExitSuccess = 0;
@@ -88,7 +90,7 @@ constexpr auto Green      = "\033[92m"sv;
 constexpr auto Yellow     = "\033[93m"sv;
 constexpr auto Gray       = "\033[90m"sv;
 constexpr auto SelectedBg = "\033[48;5;24m\033[97m"sv;
-} // namespace Color
+}
 
 // ============================================================================
 // Data Structures
@@ -106,23 +108,22 @@ struct SearchResult {
 };
 
 struct DisplayMetrics {
-	size_t terminal_height = 0;
-	size_t header_lines = 0;
-	size_t footer_lines = 0;
-	size_t available_lines = 0;
-	size_t lines_per_result = Display::MinLinesPerResult;
+	size_t terminal_height     = 0;
+	size_t header_lines        = 0;
+	size_t footer_lines        = 0;
+	size_t available_lines     = 0;
+	size_t lines_per_result    = Display::MinLinesPerResult;
 	size_t max_visible_results = 0;
-	bool dirty = true;  // Need to recalculate
+	bool dirty                 = true;
 };
 
 struct DisplayState {
-	size_t scroll_offset = 0;
-	int selected_index   = -1;
-	DisplayMetrics metrics = {};
-	size_t last_terminal_height = 0;  // For detecting resize
+	size_t scroll_offset        = 0;
+	int selected_index          = -1;
+	DisplayMetrics metrics      = {};
+	size_t last_terminal_height = 0;
 };
 
-// Commands for thread communication
 struct RefreshDisplay {
 	DisplayState state = {};
 };
@@ -150,6 +151,7 @@ using Command = std::variant<RefreshDisplay, UpdateQuery, MoveSelection,
 // ============================================================================
 
 namespace Util {
+
 [[nodiscard]] constexpr std::string to_lower(const std::string_view s)
 {
 	std::string result = {};
@@ -164,12 +166,12 @@ namespace Util {
 {
 	std::vector<std::string> words = {};
 	std::istringstream ss{std::string(text)};
-	std::string word = {};
 
-	while (ss >> word) {
+	for (std::string word = {}; ss >> word;) {
 		const auto end = rng::remove_if(word, [](const unsigned char c) {
 			                 return !std::isalnum(c);
 		                 }).begin();
+
 		word.erase(end, word.end());
 
 		if (!word.empty()) {
@@ -200,18 +202,13 @@ namespace Util {
 	return {static_cast<size_t>(csbi.dwCursorPosition.Y + 1),
 	        static_cast<size_t>(csbi.dwCursorPosition.X + 1)};
 #else
-	// Query cursor position using ANSI escape code
 	std::cout << "\033[6n" << std::flush;
 
 	char buf[32] = {};
-	size_t i = 0;
+	size_t i     = 0;
 
-	// Read response: ESC [ row ; col R
 	while (i < sizeof(buf) - 1) {
-		if (read(STDIN_FILENO, &buf[i], 1) != 1) {
-			break;
-		}
-		if (buf[i] == 'R') {
+		if (read(STDIN_FILENO, &buf[i], 1) != 1 || buf[i] == 'R') {
 			break;
 		}
 		++i;
@@ -233,7 +230,6 @@ constexpr void clear_screen()
 #ifdef _WIN32
 	std::system("cls");
 #else
-	// Move to home and clear from cursor to end of screen
 	std::cout << "\033[H\033[J"sv;
 #endif
 }
@@ -241,33 +237,34 @@ constexpr void clear_screen()
 constexpr void clear_to_end_of_screen()
 {
 #ifdef _WIN32
-	// Windows doesn't have a simple equivalent, use spaces
 	CONSOLE_SCREEN_BUFFER_INFO csbi = {};
 	if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi)) {
 		const COORD start = csbi.dwCursorPosition;
-		const DWORD size = (csbi.dwSize.X * csbi.dwSize.Y) -
+		const DWORD size  = (csbi.dwSize.X * csbi.dwSize.Y) -
 		                   (start.Y * csbi.dwSize.X + start.X);
 		DWORD written = 0;
 		FillConsoleOutputCharacter(GetStdHandle(STD_OUTPUT_HANDLE),
-		                          ' ', size, start, &written);
+		                           ' ',
+		                           size,
+		                           start,
+		                           &written);
 		SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), start);
 	}
 #else
-	std::cout << "\033[J"sv;  // Clear from cursor to end
+	std::cout << "\033[J"sv;
 #endif
 }
 
 void move_cursor(const size_t row, const size_t col)
 {
 #ifdef _WIN32
-	COORD coord = {};
-	coord.X = static_cast<SHORT>(col - 1);
-	coord.Y = static_cast<SHORT>(row - 1);
+	COORD coord = {static_cast<SHORT>(col - 1), static_cast<SHORT>(row - 1)};
 	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
 #else
 	std::cout << "\033[" << row << ";" << col << "H";
 #endif
 }
+
 } // namespace Util
 
 // ============================================================================
@@ -276,40 +273,100 @@ void move_cursor(const size_t row, const size_t col)
 
 template <typename T>
 class SafeQueue {
-	std::queue<T> queue_        = {};
-	std::mutex mutex_           = {};
-	std::condition_variable cv_ = {};
+	std::queue<T> queue_;
+	mutable std::mutex mutex_;
+	std::condition_variable cv_;
 	std::atomic<bool> running_{true};
 
 public:
-	void push(T item)
+	// 1. Perfect forwarding - constructs T in-place
+	template<typename... Args>
+	void emplace(Args&&... args)
 	{
 		{
-			const std::scoped_lock lock(mutex_);
-			queue_.push(std::move(item));
+			std::scoped_lock lock(mutex_);
+			queue_.emplace(std::forward<Args>(args)...);
 		}
 		cv_.notify_one();
 	}
 
-	[[nodiscard]] std::optional<T> pop(const std::chrono::milliseconds timeout)
+	// 2. Universal reference for efficient push
+	template<typename U>
+	void push(U&& item)
+	{
+		{
+			std::scoped_lock lock(mutex_);
+			queue_.push(std::forward<U>(item));
+		}
+		cv_.notify_one();
+	}
+
+	// 3. Non-blocking try_pop (more efficient when timeout not needed)
+	[[nodiscard]] std::optional<T> try_pop()
+	{
+		std::scoped_lock lock(mutex_);
+		if (queue_.empty()) {
+			return std::nullopt;
+		}
+		T item = std::move(queue_.front());
+		queue_.pop();
+		return item;
+	}
+
+	// 4. Blocking pop with timeout
+	[[nodiscard]] std::optional<T> pop(std::chrono::milliseconds timeout)
 	{
 		std::unique_lock lock(mutex_);
-		if (cv_.wait_for(lock, timeout, [this] {
-			    return !queue_.empty() || !running_;
-		    })) {
-			if (!queue_.empty()) {
-				T item = std::move(queue_.front());
-				queue_.pop();
-				return item;
-			}
+		if (!cv_.wait_for(lock, timeout, [this] {
+			return !queue_.empty() || !running_.load(std::memory_order_relaxed);
+		})) {
+			return std::nullopt;
 		}
-		return std::nullopt;
+
+		if (queue_.empty()) {
+			return std::nullopt;
+		}
+
+		T item = std::move(queue_.front());
+		queue_.pop();
+		return item;
+	}
+
+	// 5. Blocking pop without timeout
+	[[nodiscard]] std::optional<T> pop()
+	{
+		std::unique_lock lock(mutex_);
+		cv_.wait(lock, [this] {
+			return !queue_.empty() || !running_.load(std::memory_order_relaxed);
+		});
+
+		if (queue_.empty()) {
+			return std::nullopt;
+		}
+
+		T item = std::move(queue_.front());
+		queue_.pop();
+		return item;
 	}
 
 	void shutdown()
 	{
-		running_ = false;
+		running_.store(false, std::memory_order_relaxed);
 		cv_.notify_all();
+	}
+
+	// 6. Thread-safe size check
+	[[nodiscard]] size_t size() const
+	{
+		std::scoped_lock lock(mutex_);
+		return queue_.size();
+	}
+
+	// 7. Thread-safe empty check
+	[[nodiscard]] bool empty() const
+	{
+		std::scoped_lock lock(mutex_);
+		return queue_.empty();
 	}
 };
 
@@ -318,108 +375,57 @@ public:
 // ============================================================================
 
 class XMLParser {
-public:
-	[[nodiscard]] static std::optional<std::vector<Entry>> parse(
-	        const std::string_view filename)
-	{
-		try {
-			tinyxml2::XMLDocument doc = {};
-			if (doc.LoadFile(std::string(filename).c_str()) !=
-			    tinyxml2::XML_SUCCESS) {
-				std::cerr << "Error: Cannot open XML file "sv
-				          << filename << '\n';
-				return std::nullopt;
-			}
+	static constexpr auto get_text = [](const auto* parent, const char* tag) {
+		const auto* elem = parent->FirstChildElement(tag);
+		return elem ? elem->GetText() : nullptr;
+	};
 
-			const auto* const root = doc.FirstChildElement("LaunchBox");
-			if (!root) {
-				std::cerr << "Error: No LaunchBox root element found\n"sv;
-				return std::nullopt;
-			}
-
-			const auto alt_names = parse_alternate_names(root);
-			return parse_games(root, alt_names);
-		} catch (const std::exception& e) {
-			std::cerr << "Error parsing XML: "sv << e.what() << '\n';
-			return std::nullopt;
-		} catch (...) {
-			std::cerr << "Unknown error parsing XML\n"sv;
-			return std::nullopt;
-		}
-	}
-
-private:
 	[[nodiscard]] static std::map<std::string, std::set<std::string>>
-	parse_alternate_names(const tinyxml2::XMLElement* const root)
+	parse_alternate_names(const tinyxml2::XMLElement* root)
 	{
 		std::map<std::string, std::set<std::string>> names = {};
 
 		try {
-			constexpr auto get_text =
-			        [](const auto* const parent,
-			           const char* const tag) -> const char* {
-				const auto* const e = parent->FirstChildElement(tag);
-				return e ? e->GetText() : nullptr;
-			};
-
 			for (const auto* elem =
 			             root->FirstChildElement("AlternateName");
 			     elem;
 			     elem = elem->NextSiblingElement("AlternateName")) {
 
-				if (const auto* const id = get_text(elem, "GameId");
-				    id) {
-					if (const auto* const name = get_text(elem, "Name");
-					    name) {
-						names[id].insert(name);
-					}
+				const auto* id   = get_text(elem, "GameId");
+				const auto* name = get_text(elem, "Name");
+
+				if (id && name) {
+					names[id].insert(name);
 				}
 			}
 		} catch (...) {
-			// Return partial results if parsing fails
 		}
+
 		return names;
 	}
 
 	[[nodiscard]] static std::vector<Entry> parse_games(
-	        const tinyxml2::XMLElement* const root,
+	        const tinyxml2::XMLElement* root,
 	        const std::map<std::string, std::set<std::string>>& alt_names)
 	{
 		std::vector<Entry> entries = {};
 
 		try {
-			constexpr auto get_text =
-			        [](const auto* const parent,
-			           const char* const tag) -> const char* {
-				const auto* const e = parent->FirstChildElement(tag);
-				return e ? e->GetText() : nullptr;
-			};
-
 			for (const auto* game = root->FirstChildElement("Game"); game;
 			     game = game->NextSiblingElement("Game")) {
 
 				try {
-					Entry entry = {};
+					const auto* key = get_text(game, "RootFolder");
+					const auto* title = get_text(game, "Title");
 
-					// Key (RootFolder) - required
-					if (const auto* const key = get_text(game, "RootFolder");
-					    key) {
-						entry.key = key;
-					} else {
+					if (!key || !title) {
 						continue;
 					}
 
-					// Content (Title) - required
-					if (const auto* const title = get_text(game, "Title");
-					    title) {
-						entry.content = title;
-					} else {
-						continue;
-					}
+					Entry entry = {.key = key, .content = title};
 
 					// Add alternate names
-					if (const auto* const id = get_text(game, "ID");
-					    id) {
+					if (const auto* id = get_text(game, "ID")) {
 						if (const auto it = alt_names.find(id);
 						    it != alt_names.end()) {
 							for (const auto& alt :
@@ -429,10 +435,8 @@ private:
 						}
 					}
 
-					// Add year if not already present
-					if (const auto* const date =
-					            get_text(game, "ReleaseDate");
-					    date) {
+					// Add year if not present
+					if (const auto* date = get_text(game, "ReleaseDate")) {
 						const size_t len = std::strlen(date);
 						if (len >= 4) {
 							const std::string_view year(
@@ -446,14 +450,14 @@ private:
 					}
 
 					// Add developer and publisher
-					std::string dev_or_pub;
-					if (const auto* const dev = get_text(game, "Developer");
-					    dev) {
-						dev_or_pub = dev;
-						entry.content += " " + dev_or_pub;
+					const auto* dev = get_text(game, "Developer");
+					const auto* pub = get_text(game, "Publisher");
+
+					if (dev) {
+						entry.content += " ";
+						entry.content += dev;
 					}
-					if (const auto* const pub = get_text(game, "Publisher");
-					    pub && dev_or_pub != pub) {
+					if (pub && (!dev || std::string(dev) != pub)) {
 						entry.content += " ";
 						entry.content += pub;
 					}
@@ -461,7 +465,6 @@ private:
 					entry.words = Util::tokenize(entry.content);
 					entries.emplace_back(std::move(entry));
 				} catch (...) {
-					// Skip this entry if it fails to parse
 					continue;
 				}
 			}
@@ -469,10 +472,38 @@ private:
 			std::cout << "Loaded "sv << entries.size()
 			          << " game entries.\n"sv;
 		} catch (...) {
-			// Return partial results if parsing fails
 		}
 
 		return entries;
+	}
+
+public:
+	[[nodiscard]] static std::optional<std::vector<Entry>> parse(
+	        const std::string_view filename)
+	{
+		try {
+			tinyxml2::XMLDocument doc = {};
+			if (doc.LoadFile(std::string(filename).c_str()) !=
+			    tinyxml2::XML_SUCCESS) {
+				std::cerr << "Error: Cannot open XML file "sv
+				          << filename << '\n';
+				return std::nullopt;
+			}
+
+			const auto* root = doc.FirstChildElement("LaunchBox");
+			if (!root) {
+				std::cerr << "Error: No LaunchBox root element found\n"sv;
+				return std::nullopt;
+			}
+
+			return parse_games(root, parse_alternate_names(root));
+		} catch (const std::exception& e) {
+			std::cerr << "Error parsing XML: "sv << e.what() << '\n';
+			return std::nullopt;
+		} catch (...) {
+			std::cerr << "Unknown error parsing XML\n"sv;
+			return std::nullopt;
+		}
 	}
 };
 
@@ -481,14 +512,14 @@ private:
 // ============================================================================
 
 class SearchEngine {
-	std::vector<Entry> entries_ = {};
-	std::atomic<std::vector<SearchResult>*> results_{nullptr};
-	std::atomic<std::vector<std::string>*> completions_{nullptr};
-	std::atomic<std::string*> query_{nullptr};
+	std::vector<Entry> entries_                         = {};
+	std::atomic<std::vector<SearchResult>*> results_    = nullptr;
+	std::atomic<std::vector<std::string>*> completions_ = nullptr;
+	std::atomic<std::string*> query_                    = nullptr;
 	std::atomic<bool> search_needed_{false};
 	SafeQueue<Command>* queue_ = nullptr;
 
-	[[nodiscard]] static constexpr bool has_sequential_match(
+	[[nodiscard]] static bool has_sequential_match(
 	        const std::string_view text, const std::vector<std::string>& words)
 	{
 		if (words.empty()) {
@@ -534,34 +565,35 @@ class SearchEngine {
 
 		// Per-word matching
 		for (const auto& qword : query_words) {
-			bool matched = false;
+			int word_score = Score::None;
 
-			const auto add_score = [&](const int points) {
-				result += points;
-				matched = true;
-			};
-
+			// Check key matches
 			if (lower_key.starts_with(qword)) {
-				add_score(Score::KeyPrefix);
+				word_score = Score::KeyPrefix;
 			} else if (lower_key.find(qword) != std::string::npos) {
-				add_score(Score::KeyContains);
+				word_score = Score::KeyContains;
 			}
 
+			// Check entry word matches
 			for (const auto& eword : entry.words) {
 				if (eword.starts_with(qword)) {
-					add_score(Score::WordPrefix);
+					word_score = std::max(word_score,
+					                      Score::WordPrefix);
 				} else if (eword.find(qword) != std::string::npos) {
-					add_score(Score::WordContains);
+					word_score = std::max(word_score,
+					                      Score::WordContains);
 				}
 			}
 
+			// Check content match
 			if (lower_content.find(qword) != std::string::npos) {
-				add_score(Score::Content);
+				word_score = std::max(word_score, Score::Content);
 			}
 
-			if (!matched) {
+			if (word_score == Score::None) {
 				return Score::None;
 			}
+			result += word_score;
 		}
 		return result;
 	}
@@ -584,82 +616,78 @@ class SearchEngine {
 			return {};
 		}
 
-		std::set<std::string> comps;
+		std::set<std::string> completions;
 		const auto lower_word = Util::to_lower(word);
 
-		for (const auto& entry : entries_) {
-			const auto check_match = [&](const std::string& candidate) {
-				if (candidate.empty()) {
-					return;
-				}
-				const auto lower = Util::to_lower(candidate);
-				if (lower.starts_with(lower_word) &&
-				    lower.length() > word.length()) {
-					comps.insert(candidate);
-				}
-			};
+		const auto check_candidate = [&](const std::string& candidate) {
+			if (candidate.empty()) {
+				return;
+			}
+			const auto lower = Util::to_lower(candidate);
+			if (lower.starts_with(lower_word) &&
+			    lower.length() > word.length()) {
+				completions.insert(candidate);
+			}
+		};
 
-			check_match(entry.key);
+		for (const auto& entry : entries_) {
+			check_candidate(entry.key);
 			for (const auto& w : entry.words) {
-				check_match(w);
+				check_candidate(w);
 			}
 		}
 
-		return {comps.begin(), comps.end()};
+		return {completions.begin(), completions.end()};
 	}
 
 	void search_worker(const std::stop_token stoken)
 	{
 		while (!stoken.stop_requested()) {
-			if (search_needed_.exchange(false)) {
-				const auto* const qptr = query_.load(
-				        std::memory_order_acquire);
-				if (!qptr) {
-					std::this_thread::sleep_for(Timing::SearchSleep);
-					continue;
-				}
+			if (!search_needed_.exchange(false)) {
+				std::this_thread::sleep_for(Timing::SearchSleep);
+				continue;
+			}
 
-				const std::string q = *qptr;
+			const auto* qptr = query_.load(std::memory_order_acquire);
+			if (!qptr) {
+				std::this_thread::sleep_for(Timing::SearchSleep);
+				continue;
+			}
 
-				auto new_results =
-				        std::make_unique<std::vector<SearchResult>>();
-				auto new_comps = std::make_unique<std::vector<std::string>>(
-				        find_completions(q));
+			const std::string q = *qptr;
 
-				for (size_t i = 0; i < entries_.size(); ++i) {
-					if (const int s = score(entries_[i], q);
-					    s > Score::None) {
-						new_results->emplace_back(i, s);
-					}
-				}
+			auto new_results = std::make_unique<std::vector<SearchResult>>();
+			auto new_comps = std::make_unique<std::vector<std::string>>(
+			        find_completions(q));
 
-				rng::sort(*new_results, [this](const SearchResult& a, const SearchResult& b) {
-					return (a.score != b.score)
-					             ? (a.score > b.score)
-					             : (entries_[a.index]
-					                        .content.compare(
-					                                entries_[b.index]
-					                                        .content) <
-					                0);
-				});
-
-				if (new_results->size() > Display::MaxResults) {
-					new_results->resize(Display::MaxResults);
-				}
-
-				delete results_.exchange(new_results.release(),
-				                         std::memory_order_acq_rel);
-
-				delete completions_.exchange(new_comps.release(),
-				                             std::memory_order_acq_rel);
-
-				if (queue_) {
-					queue_->push(RefreshDisplay{
-					        {0, -1, {}}
-                                        });
+			for (size_t i = 0; i < entries_.size(); ++i) {
+				const int s = score(entries_[i], q);
+				if (s > Score::None) {
+					new_results->emplace_back(i, s);
 				}
 			}
-			std::this_thread::sleep_for(Timing::SearchSleep);
+
+			rng::sort(*new_results, [this](const auto& a, const auto& b) {
+				return (a.score != b.score)
+				             ? (a.score > b.score)
+				             : (entries_[a.index].content <
+				                entries_[b.index].content);
+			});
+
+			if (new_results->size() > Display::MaxResults) {
+				new_results->resize(Display::MaxResults);
+			}
+
+			delete results_.exchange(new_results.release(),
+			                         std::memory_order_acq_rel);
+			delete completions_.exchange(new_comps.release(),
+			                             std::memory_order_acq_rel);
+
+			if (queue_) {
+				queue_->emplace(RefreshDisplay{
+				        {0, -1, {}}
+                                });
+			}
 		}
 	}
 
@@ -678,7 +706,7 @@ public:
 		delete query_.load();
 	}
 
-	void set_queue(SafeQueue<Command>* const q)
+	void set_queue(SafeQueue<Command>* q)
 	{
 		queue_ = q;
 	}
@@ -698,13 +726,13 @@ public:
 
 	[[nodiscard]] std::string get_query() const
 	{
-		const auto* const qptr = query_.load(std::memory_order_acquire);
+		const auto* qptr = query_.load(std::memory_order_acquire);
 		return qptr ? *qptr : std::string();
 	}
 
 	[[nodiscard]] std::optional<std::string> get_completion() const
 	{
-		const auto* const comps = completions_.load(std::memory_order_acquire);
+		const auto* comps = completions_.load(std::memory_order_acquire);
 		if (!comps || comps->empty()) {
 			return std::nullopt;
 		}
@@ -717,9 +745,7 @@ public:
 		const size_t last_space  = q.find_last_of(" \t");
 		const std::string prefix = (last_space == std::string::npos)
 		                                 ? ""
-		                                 : (last_space + 1 <= q.length()
-		                                            ? q.substr(0, last_space + 1)
-		                                            : q);
+		                                 : q.substr(0, last_space + 1);
 		const std::string word   = (last_space == std::string::npos)
 		                                 ? q
 		                                 : (last_space + 1 < q.length()
@@ -770,9 +796,9 @@ public:
 		return std::nullopt;
 	}
 
-	[[nodiscard]] const Entry& get_entry(const size_t index) const
+	[[nodiscard]] const Entry& get_entry(const size_t idx) const
 	{
-		return entries_[index];
+		return entries_[idx];
 	}
 
 	[[nodiscard]] size_t get_entry_count() const
@@ -782,13 +808,13 @@ public:
 
 	[[nodiscard]] std::vector<SearchResult> get_results() const
 	{
-		const auto* const rptr = results_.load(std::memory_order_acquire);
+		const auto* rptr = results_.load(std::memory_order_acquire);
 		return rptr ? *rptr : std::vector<SearchResult>{};
 	}
 
 	[[nodiscard]] std::vector<std::string> get_completions() const
 	{
-		const auto* const cptr = completions_.load(std::memory_order_acquire);
+		const auto* cptr = completions_.load(std::memory_order_acquire);
 		return cptr ? *cptr : std::vector<std::string>{};
 	}
 };
@@ -799,72 +825,147 @@ public:
 
 class DisplayManager {
 	const SearchEngine& engine_;
-	mutable size_t cached_terminal_height_ = 0;
-	mutable std::chrono::steady_clock::time_point last_height_check_ = {};
+	mutable size_t cached_height_                             = 0;
+	mutable std::chrono::steady_clock::time_point last_check_ = {};
 
 	[[nodiscard]] size_t get_terminal_height_cached() const
 	{
-		// Only check terminal height every 500ms to avoid excessive syscalls
 		const auto now = std::chrono::steady_clock::now();
-		if (cached_terminal_height_ == 0 ||
-		    (now - last_height_check_) > 500ms) {
-			cached_terminal_height_ = Util::terminal_height();
-			last_height_check_ = now;
+		if (cached_height_ == 0 || (now - last_check_) > Timing::HeightCache) {
+			cached_height_ = Util::terminal_height();
+			last_check_    = now;
 		}
-		return cached_terminal_height_;
+		return cached_height_;
 	}
 
-	[[nodiscard]] DisplayMetrics measure_display(const size_t result_count,
-	                                             const DisplayMetrics& old_metrics) const
+	[[nodiscard]] DisplayMetrics measure_display(const DisplayMetrics& old_metrics) const
 	{
 		const size_t current_height = get_terminal_height_cached();
 
-		// If terminal size hasn't changed and metrics exist, reuse them
+		// Reuse if unchanged
 		if (!old_metrics.dirty &&
 		    old_metrics.terminal_height == current_height &&
-		    old_metrics.terminal_height > 0) {
+		    current_height > 0) {
 			return old_metrics;
 		}
 
-		DisplayMetrics metrics = {};
-		metrics.terminal_height = current_height;
-		metrics.dirty = false;
+		DisplayMetrics metrics = {.terminal_height = current_height,
+		                          .dirty           = false};
 
-		// Reserve minimum space for footer (status + controls = 2 lines minimum)
-		constexpr size_t min_footer_lines = 3;
-		constexpr size_t header_lines = 3;  // Search line + completion + separator
+		constexpr size_t min_footer = 3;
+		constexpr size_t header     = 3;
+		constexpr size_t min_space  = Display::MinVisibleResults *
+		                             Display::MinLinesPerResult;
 
-		// Calculate available space more conservatively
-		if (metrics.terminal_height > min_footer_lines + header_lines +
-		    Display::MinVisibleResults * Display::MinLinesPerResult) {
-			metrics.footer_lines = min_footer_lines;
-			metrics.header_lines = header_lines;
+		if (current_height > min_footer + header + min_space) {
+			metrics.footer_lines     = min_footer;
+			metrics.header_lines     = header;
 			metrics.lines_per_result = Display::MinLinesPerResult;
 
-			// Available lines = terminal height - header - footer
-			size_t used_lines = header_lines + metrics.footer_lines;
-			if (metrics.terminal_height > used_lines) {
-				metrics.available_lines = metrics.terminal_height - used_lines;
-			} else {
-				metrics.available_lines = Display::MinVisibleResults * Display::MinLinesPerResult;
-			}
+			const size_t used           = header + min_footer;
+			metrics.available_lines     = (current_height > used)
+			                                    ? (current_height - used)
+			                                    : min_space;
+			metrics.max_visible_results = metrics.available_lines /
+			                              metrics.lines_per_result;
 
-			metrics.max_visible_results = metrics.available_lines / metrics.lines_per_result;
-
-			// Ensure at least minimum visible results
 			if (metrics.max_visible_results < Display::MinVisibleResults) {
 				metrics.max_visible_results = Display::MinVisibleResults;
 			}
 		} else {
-			// Fallback for very small terminals
-			metrics.header_lines = header_lines;
-			metrics.footer_lines = min_footer_lines;
+			// Fallback for tiny terminals
+			metrics.header_lines     = header;
+			metrics.footer_lines     = min_footer;
 			metrics.lines_per_result = Display::MinLinesPerResult;
-			metrics.available_lines = Display::MinVisibleResults * Display::MinLinesPerResult;
+			metrics.available_lines  = min_space;
 			metrics.max_visible_results = Display::MinVisibleResults;
 		}
 
 		return metrics;
+	}
+
+	void render_header(std::ostringstream& buf, const std::string& query,
+	                   const std::vector<std::string>& completions) const
+	{
+		buf << Color::Bold << Color::Cyan << "Search: "sv << Color::Reset
+		    << query << Color::Cyan << "_"sv << Color::Reset << '\n';
+
+		if (!completions.empty() && !query.empty()) {
+			if (const auto hint = engine_.get_completion()) {
+				const size_t last_space = query.find_last_of(" \t");
+				const std::string preview =
+				        (last_space == std::string::npos)
+				                ? *hint
+				                : (last_space + 1 < hint->length()
+				                           ? hint->substr(last_space + 1)
+				                           : "");
+
+				if (!preview.empty()) {
+					buf << Color::Dim << "Tab: "sv
+					    << Color::Reset << Color::Green
+					    << preview << Color::Reset;
+
+					if (completions.size() > 1) {
+						buf << Color::Dim << " "sv
+						    << Color::Reset << Color::Gray
+						    << "("sv << Color::Yellow
+						    << completions.size()
+						    << " completions)"sv;
+					}
+					buf << '\n';
+				}
+			}
+		}
+
+		buf << Color::Reset << Color::Gray
+		    << std::string(Display::SeparatorLength, '=') << '\n';
+	}
+
+	void render_result(std::ostringstream& buf, const SearchResult& result,
+	                   size_t display_index, bool selected) const
+	{
+		if (result.index >= engine_.get_entry_count()) {
+			return;
+		}
+
+		const auto& entry = engine_.get_entry(result.index);
+
+		if (selected) {
+			buf << Color::SelectedBg;
+		}
+
+		buf << (selected ? '>' : ' ') << Color::Bold << "["sv
+		    << (display_index + 1) << "] "sv << Color::Reset;
+
+		if (selected) {
+			buf << Color::SelectedBg;
+		}
+
+		buf << entry.key << Color::Dim << " (score: "sv << result.score
+		    << ")"sv << Color::Reset << "\n    "sv;
+
+		if (entry.content.length() > Display::MaxPreviewLength) {
+			const size_t truncate_len =
+			        std::min(Display::MaxPreviewLength - 3,
+			                 entry.content.length());
+			buf << entry.content.substr(0, truncate_len) << "..."sv;
+		} else {
+			buf << entry.content;
+		}
+		buf << "\n\n"sv;
+	}
+
+	void render_footer(std::ostringstream& buf, size_t scroll_offset,
+	                   size_t display_count, size_t total_results) const
+	{
+		buf << Color::Reset << '\n'
+		    << Color::Bold << Color::Cyan << "Showing "sv
+		    << (scroll_offset + 1) << "-"sv
+		    << (scroll_offset + display_count) << " of "sv
+		    << total_results << " results"sv << Color::Reset << '\n'
+		    << Color::Dim
+		    << "↑/↓: Select | PgUp/PgDn: Scroll | Enter: Confirm | "
+		    << "Tab: Complete | Esc: Cancel"sv << Color::Reset << '\n';
 	}
 
 public:
@@ -873,72 +974,36 @@ public:
 	[[nodiscard]] DisplayMetrics render(DisplayState& state) const
 	{
 		try {
-			// Build entire output in a buffer for atomic display
-			std::ostringstream buffer;
-
-			// Clear entire screen and move to home - prevents remnants from previous renders
-			buffer << "\033[2J\033[H"sv;
+			std::ostringstream buf;
+			buf << "\033[2J\033[H"sv; // Clear screen and home
 
 			const std::string query = engine_.get_query();
-			buffer << Color::Bold << Color::Cyan << "Search: "sv
-			       << Color::Reset << query << Color::Cyan
-			       << "_"sv << Color::Reset << '\n';
+			const auto results      = engine_.get_results();
+			const auto completions  = engine_.get_completions();
 
-			// Show completion hint
-			const auto comps = engine_.get_completions();
-			if (!comps.empty() && !query.empty()) {
-				if (const auto hint = engine_.get_completion()) {
-					const size_t last_space = query.find_last_of(" \t");
-					const std::string preview =
-					        (last_space == std::string::npos)
-					                ? *hint
-					                : (last_space + 1 < hint->length()
-					                           ? hint->substr(last_space + 1)
-					                           : "");
-					if (!preview.empty()) {
-						buffer << Color::Dim << "Tab: "sv
-						       << Color::Reset << Color::Green
-						       << preview << Color::Reset
-						       << Color::Dim << " "sv;
-						if (comps.size() > 1) {
-							buffer << Color::Reset << Color::Gray
-							       << "("sv << Color::Yellow
-							       << comps.size()
-							       << " completions)"sv;
-						}
-						buffer << '\n';
-					}
-				}
-			}
+			render_header(buf, query, completions);
 
-			buffer << Color::Reset << Color::Gray
-			       << std::string(Display::SeparatorLength, '=')
-			       << '\n';
-
-			const auto results = engine_.get_results();
-
-			// Measure display space with caching
-			DisplayMetrics metrics = measure_display(results.size(), state.metrics);
+			DisplayMetrics metrics = measure_display(state.metrics);
 
 			// Detect terminal resize
 			const size_t current_height = get_terminal_height_cached();
 			if (state.last_terminal_height != current_height) {
 				state.last_terminal_height = current_height;
-				state.metrics.dirty = true;
-				metrics = measure_display(results.size(), state.metrics);
+				state.metrics.dirty        = true;
+				metrics = measure_display(state.metrics);
 			}
 
 			if (results.empty()) {
 				if (!query.empty()) {
-					buffer << "No matches found.\n"sv;
+					buf << "No matches found.\n"sv;
 				}
-				std::cout << buffer.str() << std::flush;
+				std::cout << buf.str() << std::flush;
 				return metrics;
 			}
 
-			const size_t display_count = std::min(
-			        metrics.max_visible_results,
-			        results.size() - state.scroll_offset);
+			const size_t display_count =
+			        std::min(metrics.max_visible_results,
+			                 results.size() - state.scroll_offset);
 
 			for (size_t i = 0; i < display_count; ++i) {
 				const size_t idx = state.scroll_offset + i;
@@ -946,58 +1011,17 @@ public:
 					break;
 				}
 
-				const auto& result = results[idx];
-				if (result.index >= engine_.get_entry_count()) {
-					continue;
-				}
-
-				const auto& entry = engine_.get_entry(result.index);
-
-				const bool is_selected = (static_cast<int>(idx) ==
-				                          state.selected_index);
-
-				if (is_selected) {
-					buffer << Color::SelectedBg;
-				}
-
-				buffer << (is_selected ? '>' : ' ')
-				       << Color::Bold << "["sv << (idx + 1)
-				       << "] "sv << Color::Reset;
-
-				if (is_selected) {
-					buffer << Color::SelectedBg;
-				}
-
-				buffer << entry.key << Color::Dim
-				       << " (score: "sv << result.score
-				       << ")"sv << Color::Reset << "\n    "sv;
-
-				if (entry.content.length() > Display::MaxPreviewLength) {
-					const size_t truncate_len = std::min(
-					        Display::MaxPreviewLength - 3,
-					        entry.content.length());
-					buffer << entry.content.substr(0, truncate_len)
-					       << "..."sv;
-				} else {
-					buffer << entry.content;
-				}
-				buffer << "\n\n"sv;
+				const bool selected = (static_cast<int>(idx) ==
+				                       state.selected_index);
+				render_result(buf, results[idx], idx, selected);
 			}
 
-			buffer << Color::Reset << '\n'
-			       << Color::Bold << Color::Cyan << "Showing "sv
-			       << (state.scroll_offset + 1) << "-"sv
-			       << (state.scroll_offset + display_count)
-			       << " of "sv << results.size() << " results"sv
-			       << Color::Reset << '\n'
-			       << Color::Dim
-			       << "↑/↓: Select | PgUp/PgDn: Scroll | Enter: Confirm | "
-			       << "Tab: Complete | Esc: Cancel"sv
-			       << Color::Reset << '\n';
+			render_footer(buf,
+			              state.scroll_offset,
+			              display_count,
+			              results.size());
 
-			// Write entire buffer at once for smooth rendering
-			std::cout << buffer.str() << std::flush;
-
+			std::cout << buf.str() << std::flush;
 			return metrics;
 		} catch (const std::exception& e) {
 			std::cerr << "Display error: "sv << e.what() << '\n';
@@ -1012,11 +1036,11 @@ public:
 	{
 		try {
 			const auto results = engine_.get_results();
-			if (const auto i = static_cast<size_t>(index);
-			    index >= 0 && i < results.size()) {
-				if (results[i].index >= engine_.get_entry_count()) {
-					return std::nullopt;
-				}
+			const auto i       = static_cast<size_t>(index);
+
+			if (index >= 0 && i < results.size() &&
+			    results[i].index < engine_.get_entry_count()) {
+
 				const auto& entry = engine_.get_entry(results[i].index);
 				std::cout << "\n\nSelected: "sv << entry.key << '\n'
 				          << entry.content << '\n';
@@ -1068,13 +1092,7 @@ class InputHandler {
 #endif
 	}
 
-	[[nodiscard]] int read_byte() const
-	{
-		unsigned char c = {};
-		return (read(STDIN_FILENO, &c, 1) == 1) ? c : -1;
-	}
-
-	void flush_input_buffer() const
+	void flush_input() const
 	{
 #ifdef _WIN32
 		while (_kbhit()) {
@@ -1085,11 +1103,12 @@ class InputHandler {
 #endif
 	}
 
-	[[nodiscard]] int read_byte_timeout(const int timeout_ms) const
+	[[nodiscard]] int read_timeout(const int timeout_ms) const
 	{
 #ifdef _WIN32
-		const auto start = std::chrono::steady_clock::now();
-		while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(timeout_ms)) {
+		const auto start   = std::chrono::steady_clock::now();
+		const auto timeout = std::chrono::milliseconds(timeout_ms);
+		while (std::chrono::steady_clock::now() - start < timeout) {
 			if (_kbhit()) {
 				return _getch();
 			}
@@ -1101,9 +1120,7 @@ class InputHandler {
 		FD_ZERO(&fds);
 		FD_SET(STDIN_FILENO, &fds);
 
-		timeval tv{};
-		tv.tv_sec = 0;
-		tv.tv_usec = timeout_ms * 1000;
+		timeval tv{0, timeout_ms * 1000};
 
 		if (select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv) > 0) {
 			unsigned char c = {};
@@ -1115,13 +1132,11 @@ class InputHandler {
 #endif
 	}
 
-
 public:
 	InputHandler()
 	{
 #ifndef _WIN32
 		tcgetattr(STDIN_FILENO, &old_term_);
-
 		termios new_term = old_term_;
 		new_term.c_lflag &= ~static_cast<tcflag_t>(ICANON | ECHO);
 		tcsetattr(STDIN_FILENO, TCSANOW, &new_term);
@@ -1147,13 +1162,11 @@ public:
 
 		const char c = getch();
 
-		// Ctrl+C or Escape
-		if (c == 0x03) {
+		if (c == 0x03) { // Ctrl+C
 			return Exit{ExitSuccess};
 		}
 
-		// Tab completion
-		if (c == 0x09) {
+		if (c == 0x09) { // Tab completion
 			if (auto comp = engine.get_completion()) {
 				query = *comp;
 				return UpdateQuery{query};
@@ -1161,8 +1174,7 @@ public:
 			return std::nullopt;
 		}
 
-		// Backspace
-		if (c == 127 || c == 8) {
+		if (c == 127 || c == 8) { // Backspace
 			if (!query.empty()) {
 				query.pop_back();
 				return UpdateQuery{query};
@@ -1170,48 +1182,45 @@ public:
 			return std::nullopt;
 		}
 
-		// Enter
-		if (c == '\r' || c == '\n') {
+		if (c == '\r' || c == '\n') { // Enter
 			return SelectResult{-1};
 		}
 
-		// Escape sequences
-		if (c == 0x1B) {
-			// Read with timeout to handle incomplete sequences
-			const int c1 = read_byte_timeout(10);
+		if (c == 0x1B) { // Escape sequence
+			const int c1 = read_timeout(
+			        static_cast<int>(Timing::InputTimeout.count()));
 			if (c1 == -1) {
 				return Exit{ExitSuccess};
 			}
 			if (c1 != '[') {
-				// Not a standard escape sequence, discard
-				flush_input_buffer();
-                return std::nullopt;
+				flush_input();
+				return std::nullopt;
 			}
 
-			const int c2 = read_byte_timeout(10);
+			const int c2 = read_timeout(
+			        static_cast<int>(Timing::InputTimeout.count()));
 			if (c2 == -1) {
-				// Incomplete sequence, discard
-				flush_input_buffer();
-                return std::nullopt;
+				flush_input();
+				return std::nullopt;
 			}
 
 			switch (c2) {
-			case 'A':
-				flush_input_buffer();  // Clear any queued repeats
-				return MoveSelection{-1};
-			case 'B':
-				flush_input_buffer();  // Clear any queued repeats
-				return MoveSelection{1};
+			case 'A': flush_input(); return MoveSelection{-1};
+			case 'B': flush_input(); return MoveSelection{1};
 			case '5': {
-				if (read_byte_timeout(10) == '~') {
-					flush_input_buffer();  // Clear any queued repeats
+				const int c3 = read_timeout(static_cast<int>(
+				        Timing::InputTimeout.count()));
+				if (c3 == '~') {
+					flush_input();
 					return PageScroll{true};
 				}
 				break;
 			}
 			case '6': {
-				if (read_byte_timeout(10) == '~') {
-					flush_input_buffer();  // Clear any queued repeats
+				const int c3 = read_timeout(static_cast<int>(
+				        Timing::InputTimeout.count()));
+				if (c3 == '~') {
+					flush_input();
 					return PageScroll{false};
 				}
 				break;
@@ -1220,8 +1229,7 @@ public:
 			return std::nullopt;
 		}
 
-		// Printable characters
-		if (c >= 32 && c <= 126) {
+		if (c >= 32 && c <= 126) { // Printable characters
 			query += c;
 			return UpdateQuery{query};
 		}
@@ -1240,8 +1248,8 @@ class Application {
 	InputHandler input_       = {};
 	SafeQueue<Command> queue_ = {};
 
-	DisplayState display_state_ = {};
-	std::string query_          = {};
+	DisplayState state_ = {};
+	std::string query_  = {};
 	std::atomic<bool> running_{true};
 	std::atomic<int> exit_code_{ExitSuccess};
 
@@ -1260,10 +1268,15 @@ class Application {
 
 					        try {
 						        if constexpr (std::is_same_v<T, RefreshDisplay>) {
-							        display_state_.scroll_offset = arg.state.scroll_offset;
-							        display_state_.selected_index = arg.state.selected_index;
-							        display_state_.metrics.dirty = true;
-							        display_state_.metrics = display_.render(display_state_);
+							        state_.scroll_offset =
+							                arg.state
+							                        .scroll_offset;
+							        state_.selected_index =
+							                arg.state
+							                        .selected_index;
+							        state_.metrics.dirty = true;
+							        state_.metrics = display_.render(
+							                state_);
 						        } else if constexpr (std::is_same_v<T, UpdateQuery>) {
 							        query_ = std::move(
 							                arg.query);
@@ -1281,11 +1294,11 @@ class Application {
 							        running_ = false;
 						        }
 					        } catch (const std::exception& e) {
-						        std::cerr << "Command processing error: "sv
+						        std::cerr << "Command error: "sv
 						                  << e.what()
 						                  << '\n';
 					        } catch (...) {
-						        std::cerr << "Unknown command processing error\n"sv;
+						        std::cerr << "Unknown command error\n"sv;
 					        }
 				        },
 				        *cmd);
@@ -1307,32 +1320,26 @@ class Application {
 
 		const int result_count = static_cast<int>(results.size());
 
-		// Initialize or update selection
-		if (display_state_.selected_index < 0) {
-			display_state_.selected_index = 0;
+		if (state_.selected_index < 0) {
+			state_.selected_index = 0;
 		} else {
-			display_state_.selected_index =
-			        std::clamp(display_state_.selected_index + delta,
-			                   0,
-			                   result_count - 1);
+			state_.selected_index = std::clamp(state_.selected_index + delta,
+			                                   0,
+			                                   result_count - 1);
 		}
 
-		// Ensure selected item is visible using measured metrics
-		const size_t selected = static_cast<size_t>(display_state_.selected_index);
-		const size_t max_visible = display_state_.metrics.max_visible_results;
+		const size_t selected = static_cast<size_t>(state_.selected_index);
+		const size_t max_visible = state_.metrics.max_visible_results;
 
 		if (max_visible > 0) {
-			// If selected is above visible window, scroll up
-			if (selected < display_state_.scroll_offset) {
-				display_state_.scroll_offset = selected;
-			}
-			// If selected is below visible window, scroll down
-			else if (selected >= display_state_.scroll_offset + max_visible) {
-				display_state_.scroll_offset = selected - max_visible + 1;
+			if (selected < state_.scroll_offset) {
+				state_.scroll_offset = selected;
+			} else if (selected >= state_.scroll_offset + max_visible) {
+				state_.scroll_offset = selected - max_visible + 1;
 			}
 		}
 
-		display_state_.metrics = display_.render(display_state_);
+		state_.metrics = display_.render(state_);
 	}
 
 	void handle_page_scroll(const bool up)
@@ -1343,51 +1350,49 @@ class Application {
 		}
 
 		const size_t result_count = results.size();
-		const size_t max_visible = display_state_.metrics.max_visible_results;
+		const size_t max_visible  = state_.metrics.max_visible_results;
 
 		if (max_visible == 0) {
 			return;
 		}
 
-		// Calculate page size (typically one screen minus one for overlap)
 		const size_t page_size = std::max(size_t(1), max_visible - 1);
 
-		// Move selection by page_size
 		if (up) {
-			const int new_selected = display_state_.selected_index - static_cast<int>(page_size);
-			display_state_.selected_index = std::max(0, new_selected);
+			const int new_selected = state_.selected_index -
+			                         static_cast<int>(page_size);
+			state_.selected_index = std::max(0, new_selected);
 		} else {
-			const int new_selected = display_state_.selected_index + static_cast<int>(page_size);
-			display_state_.selected_index = std::min(new_selected,
-			                                         static_cast<int>(result_count) - 1);
+			const int new_selected = state_.selected_index +
+			                         static_cast<int>(page_size);
+			state_.selected_index = std::min(
+			        new_selected, static_cast<int>(result_count) - 1);
 		}
 
-		// Adjust scroll to keep selection visible
-		const size_t selected = static_cast<size_t>(display_state_.selected_index);
+		const size_t selected = static_cast<size_t>(state_.selected_index);
 
-		if (selected < display_state_.scroll_offset) {
-			display_state_.scroll_offset = selected;
-		} else if (selected >= display_state_.scroll_offset + max_visible) {
-			display_state_.scroll_offset = selected - max_visible + 1;
+		if (selected < state_.scroll_offset) {
+			state_.scroll_offset = selected;
+		} else if (selected >= state_.scroll_offset + max_visible) {
+			state_.scroll_offset = selected - max_visible + 1;
 		}
 
-		display_state_.metrics = display_.render(display_state_);
+		state_.metrics = display_.render(state_);
 	}
 
 	void handle_select(const int index)
 	{
 		const auto results = engine_.get_results();
 
-		// Determine which result to select
 		int target_index = index;
 		if (target_index < 0) {
-			if (display_state_.selected_index >= 0) {
-				target_index = display_state_.selected_index;
+			if (state_.selected_index >= 0) {
+				target_index = state_.selected_index;
 			} else if (results.size() == 1) {
 				target_index = 0;
 			} else if (results.size() > 1) {
-				display_state_.selected_index = 0;
-				display_state_.metrics = display_.render(display_state_);
+				state_.selected_index = 0;
+				state_.metrics        = display_.render(state_);
 				return;
 			}
 		}
@@ -1409,9 +1414,7 @@ public:
 	[[nodiscard]] int run()
 	{
 		try {
-			// Initial clear on startup
 			Util::clear_screen();
-
 			engine_.update_query("");
 
 			auto search_thread = engine_.start();
@@ -1423,7 +1426,7 @@ public:
 				try {
 					if (const auto cmd = input_.poll(query_,
 					                                 engine_)) {
-						queue_.push(*cmd);
+						queue_.emplace(*cmd);
 					}
 					std::this_thread::sleep_for(Timing::IOSleep);
 				} catch (const std::exception& e) {
@@ -1460,7 +1463,8 @@ int main(const int argc, char* const argv[])
 		if (argc != 2) {
 			std::cout << "Usage: "sv << argv[0]
 			          << " <launchbox_xml_file>\n"sv
-			          << "File format: LaunchBox XML with Game and AlternateName elements\n"sv;
+			          << "File format: LaunchBox XML with Game and "
+			          << "AlternateName elements\n"sv;
 			return ExitError;
 		}
 
