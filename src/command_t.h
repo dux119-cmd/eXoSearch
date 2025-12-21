@@ -1,6 +1,8 @@
 #ifndef COMMAND_T
 #define COMMAND_T
 
+#include <cstddef>
+#include <string>
 #include <variant>
 
 namespace Display {

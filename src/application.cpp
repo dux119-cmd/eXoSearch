@@ -1,6 +1,8 @@
 #include "application.h"
 #include "timing_t.h"
 #include "utilities.h"
+
+#include <algorithm>
 #include <iostream>
 
 // ============================================================================

@@ -22,35 +22,9 @@ namespace Util {
 
 void move_cursor(const size_t row, const size_t col);
 
-constexpr void clear_screen()
-{
-#ifdef _WIN32
-	std::system("cls");
-#else
-	std::cout << "\033[H\033[J";
-#endif
-}
+void clear_screen();
 
-constexpr void clear_to_end_of_screen()
-{
-#ifdef _WIN32
-	CONSOLE_SCREEN_BUFFER_INFO csbi = {};
-	if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi)) {
-		const COORD start = csbi.dwCursorPosition;
-		const DWORD size  = (csbi.dwSize.X * csbi.dwSize.Y) -
-		                   (start.Y * csbi.dwSize.X + start.X);
-		DWORD written = 0;
-		FillConsoleOutputCharacter(GetStdHandle(STD_OUTPUT_HANDLE),
-		                           ' ',
-		                           size,
-		                           start,
-		                           &written);
-		SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), start);
-	}
-#else
-	std::cout << "\033[J";
-#endif
-}
+void clear_to_end_of_screen();
 
 } // namespace Util
 
