@@ -37,7 +37,7 @@ class SearchEngine {
 	[[nodiscard]] std::vector<std::string> find_completions(
 	        const std::string_view query) const;
 
-	void search_worker(const std::stop_token stoken);
+	void search_worker(std::atomic<bool>& stop_flag);
 
 public:
 	explicit SearchEngine(std::vector<Entry> entries);
@@ -46,7 +46,7 @@ public:
 
 	void set_queue(SafeQueue<Command>* q);
 
-	[[nodiscard]] std::jthread start();
+	[[nodiscard]] std::thread start(std::atomic<bool>& stop_flag);
 
 	void update_query(const std::string& q);
 

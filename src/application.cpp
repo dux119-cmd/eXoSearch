@@ -9,11 +9,11 @@
 // Application
 // ============================================================================
 
-void Application::io_worker(const std::stop_token stoken)
+void Application::io_worker(std::atomic<bool>& stop_flag)
 {
 	using namespace std::string_view_literals;
 
-	while (!stoken.stop_requested() && running_) {
+	while (!stop_flag.load(std::memory_order_acquire) && running_) {
 		try {
 			const auto cmd = queue_.pop(Timing::IOSleep);
 			if (!cmd) {
@@ -169,9 +169,12 @@ Application::Application(std::vector<Entry> entries)
 		Util::clear_screen();
 		engine_.update_query("");
 
-		auto search_thread = engine_.start();
-		std::jthread io_thread(
-		        [this](const std::stop_token st) { io_worker(st); });
+		std::atomic<bool> stop_flag{false};
+
+		auto search_thread = engine_.start(stop_flag);
+
+		std::thread io_thread(
+		        [this, &stop_flag]() { io_worker(stop_flag); });
 
 		while (running_) {
 			try {
@@ -187,6 +190,18 @@ Application::Application(std::vector<Entry> entries)
 		}
 
 		queue_.shutdown();
+
+		// Signal the io_thread to stop
+		stop_flag.store(true, std::memory_order_release);
+
+		// Explicitly join threads before returning
+		if (io_thread.joinable()) {
+			io_thread.join();
+		}
+		if (search_thread.joinable()) {
+			search_thread.join();
+		}
+
 		std::cout << "\n\nSearch "sv
 		          << (exit_code_ == ExitSuccess ? "terminated"sv : "completed"sv)
 		          << ".\n"sv;

@@ -142,9 +142,9 @@ constexpr int None              = 0;
 	return {completions.begin(), completions.end()};
 }
 
-void SearchEngine::search_worker(const std::stop_token stoken)
+void SearchEngine::search_worker(std::atomic<bool>& stop_flag)
 {
-	while (!stoken.stop_requested()) {
+	while (!stop_flag.load(std::memory_order_acquire)) {
 		if (!search_needed_.exchange(false)) {
 			std::this_thread::sleep_for(Timing::SearchSleep);
 			continue;
@@ -211,10 +211,9 @@ void SearchEngine::set_queue(SafeQueue<Command>* q)
 	queue_ = q;
 }
 
-[[nodiscard]] std::jthread SearchEngine::start()
+[[nodiscard]] std::thread SearchEngine::start(std::atomic<bool>& stop_flag)
 {
-	return std::jthread(
-	        [this](const std::stop_token st) { search_worker(st); });
+	return std::thread([this, &stop_flag]() { search_worker(stop_flag); });
 }
 
 void SearchEngine::update_query(const std::string& q)

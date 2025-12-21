@@ -25,7 +25,7 @@ class Application {
 	std::atomic<bool> running_{true};
 	std::atomic<int> exit_code_{ExitSuccess};
 
-	void io_worker(const std::stop_token stoken);
+	void io_worker(std::atomic<bool>& stop_flag);
 
 	void handle_move(const int delta);
 
