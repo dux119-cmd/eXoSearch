@@ -165,7 +165,7 @@ void SearchEngine::search_worker(std::atomic<bool>& stop_flag)
 		for (size_t i = 0; i < entries_.size(); ++i) {
 			const int s = score(entries_[i], q);
 			if (s > Score::None) {
-				new_results->emplace_back(i, s);
+				new_results->emplace_back(SearchResult{i, s});
 			}
 		}
 
