@@ -53,7 +53,7 @@ jobs:
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }} \
-            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
       
       - name: Build
         run: cmake --build build --config Release
