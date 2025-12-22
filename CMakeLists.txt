@@ -48,7 +48,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     
     # Size-focused compilation flags
     target_compile_options(eds PRIVATE
-        $<$<CXX_COMPILER_ID:MSVC>:/O1 /GL>
+        $<$<CXX_COMPILER_ID:MSVC>:/O1>
         $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:-Os -ffunction-sections -fdata-sections>
     )
     
