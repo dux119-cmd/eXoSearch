@@ -6,6 +6,7 @@
 #include <string> // if std::string used here
 
 #ifdef _WIN32
+#define NOMINMAX
 #include <conio.h>
 #include <windows.h>
 #else
@@ -31,22 +32,32 @@ namespace Util {
 	return result;
 }
 
-[[nodiscard]] std::vector<std::string> tokenize(const std::string_view text)
+[[nodiscard]] std::vector<std::string_view> tokenize(const std::string_view text)
 {
-	std::vector<std::string> words = {};
-	std::istringstream ss{std::string(text)};
+	std::vector<std::string_view> words = {};
 
-	for (std::string word = {}; ss >> word;) {
-		const auto end = std::ranges::remove_if(word, [](const unsigned char c) {
-			                 return !std::isalnum(c);
-		                 }).begin();
+    const char* data = text.data();
+    const size_t len = text.size();
 
-		word.erase(end, word.end());
+    for (size_t i = 0; i < len; ) {
+        // Skip non-alphanumeric characters
+        while (i < len && !std::isalnum(static_cast<unsigned char>(data[i]))) {
+            ++i;
+        }
 
-		if (!word.empty()) {
-			words.emplace_back(to_lower(word));
-		}
-	}
+        if (i >= len) break;
+
+        // Mark start of token
+        const size_t start = i;
+
+        // Find end of alphanumeric sequence
+        while (i < len && std::isalnum(static_cast<unsigned char>(data[i]))) {
+            ++i;
+        }
+
+        // Add the token as a string_view pointing into content
+        words.emplace_back(data + start, i - start);
+    }
 	return words;
 }
 

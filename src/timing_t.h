@@ -1,6 +1,8 @@
 #ifndef TIMING_T
 #define TIMING_T
 
+#include <chrono>
+
 namespace Timing {
 
 using namespace std::chrono_literals;

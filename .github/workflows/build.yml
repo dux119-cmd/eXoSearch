@@ -40,7 +40,7 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: macos-13
+            runner: macos-14
             cmake_arch: x86_64
           - arch: arm64
             runner: macos-14
@@ -52,9 +52,8 @@ jobs:
       - name: Configure CMake
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }} \
-            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
-      
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }}
+
       - name: Build
         run: cmake --build build --config Release
       

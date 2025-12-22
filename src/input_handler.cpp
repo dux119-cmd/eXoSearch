@@ -23,7 +23,7 @@
 #endif
 }
 
-[[nodiscard]] char InputHandler::getch() const
+[[nodiscard]] int InputHandler::getch() const
 {
 #ifdef _WIN32
 	return _getch();
@@ -97,7 +97,7 @@ InputHandler::~InputHandler()
 		return std::nullopt;
 	}
 
-	const char c = getch();
+	const auto c = getch();
 
 	if (c == 0x03) { // Ctrl+C
 		return Exit{ExitSuccess};
@@ -167,7 +167,7 @@ InputHandler::~InputHandler()
 	}
 
 	if (c >= 32 && c <= 126) { // Printable characters
-		query += c;
+		query += static_cast<char>(c);
 		return UpdateQuery{query};
 	}
 

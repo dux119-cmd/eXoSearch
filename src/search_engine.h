@@ -30,7 +30,7 @@ class SearchEngine {
 	SafeQueue<Command>* queue_ = nullptr;
 
 	[[nodiscard]] static bool has_sequential_match(
-	        const std::string_view text, const std::vector<std::string>& words);
+	        const std::string_view text, const std::vector<std::string_view>& words);
 
 	[[nodiscard]] int score(const Entry& entry, const std::string_view query) const;
 

@@ -23,7 +23,7 @@ constexpr int None              = 0;
 } // namespace Score
 
 [[nodiscard]] bool SearchEngine::has_sequential_match(
-        const std::string_view text, const std::vector<std::string>& words)
+        const std::string_view text, const std::vector<std::string_view>& words)
 {
 	if (words.empty()) {
 		return false;
@@ -122,13 +122,13 @@ constexpr int None              = 0;
 	std::set<std::string> completions;
 	const auto lower_word = Util::to_lower(word);
 
-	const auto check_candidate = [&](const std::string& candidate) {
+	const auto check_candidate = [&](const std::string_view candidate) {
 		if (candidate.empty()) {
 			return;
 		}
 		const auto lower = Util::to_lower(candidate);
 		if (lower.starts_with(lower_word) && lower.length() > word.length()) {
-			completions.insert(candidate);
+			completions.emplace(std::string(candidate));
 		}
 	};
 

@@ -109,8 +109,9 @@
 [[nodiscard]] std::optional<std::vector<Entry>> XMLParser::parse(const std::string_view filename)
 {
 	try {
+		// XMLDocument's memory is cleaned up when it goes out of scope
 		tinyxml2::XMLDocument doc = {};
-		if (doc.LoadFile(std::string(filename).c_str()) !=
+		if (doc.LoadFile(filename.data()) !=
 		    tinyxml2::XML_SUCCESS) {
 			std::cerr << "Error: Cannot open XML file " << filename
 			          << '\n';

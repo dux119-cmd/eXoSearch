@@ -7,6 +7,7 @@
 #include <string>
 
 #ifdef _WIN32
+#define NOMINMAX
 #include <conio.h>
 #include <windows.h>
 #else
@@ -27,7 +28,7 @@ class InputHandler {
 
 	[[nodiscard]] bool kbhit() const;
 
-	[[nodiscard]] char getch() const;
+	[[nodiscard]] int getch() const;
 
 	void flush_input() const;
 

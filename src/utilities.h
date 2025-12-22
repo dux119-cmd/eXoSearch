@@ -14,7 +14,7 @@ namespace Util {
 
 [[nodiscard]] std::string to_lower(const std::string_view s);
 
-[[nodiscard]] std::vector<std::string> tokenize(const std::string_view text);
+[[nodiscard]] std::vector<std::string_view> tokenize(const std::string_view text);
 
 [[nodiscard]] size_t terminal_height();
 
