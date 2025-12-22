@@ -9,15 +9,6 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Aggressive optimization for Release builds
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    if(MSVC)
-        add_compile_options(/O2)
-    else()
-        add_compile_options(-Ofast)
-    endif()
-endif()
-
 # Fetch tinyxml2
 include(FetchContent)
 FetchContent_Declare(tinyxml2
@@ -27,7 +18,7 @@ FetchContent_Declare(tinyxml2
 set(tinyxml2_BUILD_TESTING OFF)
 FetchContent_MakeAvailable(tinyxml2)
 
-# source files
+# Source files
 set(SOURCES
     src/application.cpp
     src/display_manager.cpp
@@ -49,3 +40,26 @@ target_compile_options(eds PRIVATE
     $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wformat=2>
 )
+
+# Size optimization for Release builds
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # Link-Time Optimization (most effective for size reduction)
+    set_property(TARGET eds PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    
+    # Size-focused compilation flags
+    target_compile_options(eds PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/O1 /GL>
+        $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:-Os -ffunction-sections -fdata-sections>
+    )
+    
+    # Size-focused linker flags
+    target_link_options(eds PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/LTCG /OPT:REF /OPT:ICF>
+        $<$<CXX_COMPILER_ID:GNU>:-Wl,--gc-sections -Wl,--strip-all>
+        $<$<CXX_COMPILER_ID:Clang>:-Wl,--gc-sections -Wl,--strip-all>
+    )
+    
+    # Hide symbols by default (reduces export table)
+    set_property(TARGET eds PROPERTY CXX_VISIBILITY_PRESET hidden)
+    set_property(TARGET eds PROPERTY VISIBILITY_INLINES_HIDDEN ON)
+endif()
