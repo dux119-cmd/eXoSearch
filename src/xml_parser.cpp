@@ -111,8 +111,7 @@
 	try {
 		// XMLDocument's memory is cleaned up when it goes out of scope
 		tinyxml2::XMLDocument doc = {};
-		if (doc.LoadFile(filename.data()) !=
-		    tinyxml2::XML_SUCCESS) {
+		if (doc.LoadFile(filename.data()) != tinyxml2::XML_SUCCESS) {
 			std::cerr << "Error: Cannot open XML file " << filename
 			          << '\n';
 			return std::nullopt;

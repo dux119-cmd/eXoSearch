@@ -26,7 +26,7 @@ namespace Util {
 {
 	std::string result = {};
 	result.reserve(s.size());
-	std::ranges::transform(s, std::back_inserter(result), [](const unsigned char c) {
+	std::ranges::transform(s, std::back_inserter(result), [](const char c) {
 		return std::tolower(c);
 	});
 	return result;
@@ -36,28 +36,30 @@ namespace Util {
 {
 	std::vector<std::string_view> words = {};
 
-    const char* data = text.data();
-    const size_t len = text.size();
+	const char* data = text.data();
+	const size_t len = text.size();
 
-    for (size_t i = 0; i < len; ) {
-        // Skip non-alphanumeric characters
-        while (i < len && !std::isalnum(static_cast<unsigned char>(data[i]))) {
-            ++i;
-        }
+	for (size_t i = 0; i < len;) {
+		// Skip non-alphanumeric characters
+		while (i < len && !std::isalnum(data[i])) {
+			++i;
+		}
 
-        if (i >= len) break;
+		if (i >= len) {
+			break;
+		}
 
-        // Mark start of token
-        const size_t start = i;
+		// Mark start of token
+		const size_t start = i;
 
-        // Find end of alphanumeric sequence
-        while (i < len && std::isalnum(static_cast<unsigned char>(data[i]))) {
-            ++i;
-        }
+		// Find end of alphanumeric sequence
+		while (i < len && std::isalnum(data[i])) {
+			++i;
+		}
 
-        // Add the token as a string_view pointing into content
-        words.emplace_back(data + start, i - start);
-    }
+		// Add the token as a string_view pointing into content
+		words.emplace_back(data + start, i - start);
+	}
 	return words;
 }
 

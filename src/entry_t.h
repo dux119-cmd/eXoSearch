@@ -6,8 +6,8 @@
 #include <vector>
 
 struct Entry {
-	std::string key                = {};
-	std::string content            = {};
+	std::string key                     = {};
+	std::string content                 = {};
 	std::vector<std::string_view> words = {};
 };
 

@@ -53,7 +53,7 @@ void InputHandler::flush_input() const
 		if (_kbhit()) {
 			return _getch();
 		}
-		std::this_thread::sleep_for(1ms);
+		std::this_thread::sleep_for(IntraCharacterTimeout);
 	}
 	return -1;
 #else
@@ -64,7 +64,7 @@ void InputHandler::flush_input() const
 	timeval tv{0, timeout_ms * 1000};
 
 	if (select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv) > 0) {
-		unsigned char c = {};
+		char c = {};
 		if (read(STDIN_FILENO, &c, 1) == 1) {
 			return c;
 		}
