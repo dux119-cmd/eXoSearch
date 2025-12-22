@@ -53,7 +53,7 @@ void InputHandler::flush_input() const
 		if (_kbhit()) {
 			return _getch();
 		}
-		std::this_thread::sleep_for(IntraCharacterTimeout);
+		std::this_thread::sleep_for(Timing::IntraCharacterTimeout);
 	}
 	return -1;
 #else

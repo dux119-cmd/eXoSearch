@@ -24,14 +24,13 @@ namespace Util {
 
 [[nodiscard]] std::string to_lower(const std::string_view s)
 {
-	std::string result = {};
-	result.reserve(s.size());
-	std::ranges::transform(s, std::back_inserter(result), [](const char c) {
-		return std::tolower(c);
-	});
-	return result;
+    std::string result = {};
+    result.reserve(s.size());
+    std::ranges::transform(s, std::back_inserter(result), [](const char c) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    });
+    return result;
 }
-
 [[nodiscard]] std::vector<std::string_view> tokenize(const std::string_view text)
 {
 	std::vector<std::string_view> words = {};
